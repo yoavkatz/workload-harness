@@ -16,7 +16,8 @@ A standalone Python runner that uses AppWorld to enumerate tasks and fetch task 
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.11 or 3.12 (Python 3.13 is **not supported** due to `uvloop` build incompatibility)
+- [uv](https://docs.astral.sh/uv/) package manager
 - Access to an A2A-compatible agent endpoint such as [Simple Generalist in Kagenti examples](a2a/simple_generalist/src/simple_generalist)
 - Access to the AppWorld API server such as [AppWorld Tool in Kagenti](https://github.com/kagenti/agent-examples/tree/main/mcp/appworld_apis)
 - Deploy both the agent and the AppWorld API server on Kagenti. Expose them as external services or `port-forward` to their exposed ports. For the AppWorld API server, you will need to access its REST API interface, which is by default exposed on port `8000`
@@ -27,9 +28,8 @@ A standalone Python runner that uses AppWorld to enumerate tasks and fetch task 
 ```bash
 git clone git@github.com:kagenti/workload-harness.git
 cd appworld_a2a_runner
-uv venv
+uv sync --python 3.12
 source .venv/bin/activate
-uv sync
 ```
 
 ## Configuration
