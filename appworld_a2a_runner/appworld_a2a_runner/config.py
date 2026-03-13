@@ -2,6 +2,7 @@
 
 Configuration is loaded from environment variables with optional CLI overrides.
 """
+
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -31,20 +32,20 @@ def _get_int(key: str, default: Optional[int] = None) -> Optional[int]:
 @dataclass
 class A2AConfig:
     """A2A endpoint configuration."""
-    
+
     base_url: str
     timeout_seconds: int = 300
     auth_token: Optional[str] = None
     verify_tls: bool = True
     endpoint_path: str = "/v1/chat"
-    
+
     @classmethod
     def from_env(cls) -> "A2AConfig":
         """Load A2A configuration from environment variables."""
         base_url = os.getenv("A2A_BASE_URL")
         if not base_url:
             raise ValueError("A2A_BASE_URL environment variable is required")
-        
+
         return cls(
             base_url=base_url,
             timeout_seconds=_get_int("A2A_TIMEOUT_SECONDS", 300) or 300,
@@ -57,13 +58,13 @@ class A2AConfig:
 @dataclass
 class AppWorldConfig:
     """AppWorld dataset configuration."""
-    
+
     dataset: str
     remote_apis_url: Optional[str] = None
     root: Optional[str] = None
     max_tasks: Optional[int] = None
     abort_on_failure: bool = False
-    
+
     @classmethod
     def from_env(cls) -> "AppWorldConfig":
         """Load AppWorld configuration from environment variables."""
@@ -73,7 +74,7 @@ class AppWorldConfig:
         remote_apis_url = os.getenv("APPWORLD_REMOTE_APIS_URL")
         if not remote_apis_url:
             raise ValueError("APPWORLD_REMOTE_APIS_URL environment variable is required")
-        
+
         return cls(
             dataset=dataset,
             remote_apis_url=remote_apis_url,
@@ -86,7 +87,7 @@ class AppWorldConfig:
 @dataclass
 class OTELConfig:
     """OpenTelemetry configuration."""
-    
+
     service_name: str = "appworld-a2a-proxy"
     exporter_endpoint: Optional[str] = None
     exporter_protocol: str = "grpc"
@@ -110,10 +111,10 @@ class OTELConfig:
 @dataclass
 class DebugConfig:
     """Debug and logging configuration."""
-    
+
     log_prompt: bool = False
     log_response: bool = False
-    
+
     @classmethod
     def from_env(cls) -> "DebugConfig":
         """Load debug configuration from environment variables."""
@@ -126,12 +127,12 @@ class DebugConfig:
 @dataclass
 class Config:
     """Complete runner configuration."""
-    
+
     a2a: A2AConfig
     appworld: AppWorldConfig
     otel: OTELConfig
     debug: DebugConfig
-    
+
     @classmethod
     def from_env(cls) -> "Config":
         """Load complete configuration from environment variables."""
@@ -141,5 +142,6 @@ class Config:
             otel=OTELConfig.from_env(),
             debug=DebugConfig.from_env(),
         )
+
 
 # Made with Bob
