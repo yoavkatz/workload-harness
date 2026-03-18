@@ -84,26 +84,27 @@ class A2AProxyClient:
     def _discover_rpc_url(self) -> str:
         """Discover the JSON-RPC endpoint URL from the agent card.
 
+        Always uses the configured base_url to build the RPC URL, ignoring
+        the URL from the agent card. This ensures we use the correct URL
+        when port-forwarding or proxying.
+
         Returns:
             JSON-RPC endpoint URL
         """
         try:
+            # Fetch agent card for validation, but don't use its URL
             card = self._get_agent_card()
             service_url = card.get("url")
-
-            # If the card has an explicit non-root path, treat it as the RPC URL.
-            # Otherwise build URL from base + configured endpoint path.
+            
             if service_url:
-                parsed = urlparse(service_url)
-                if parsed.path and parsed.path != "/":
-                    rpc_url = service_url.rstrip("/")
-                else:
-                    rpc_url = self._build_rpc_url(service_url)
-            else:
-                rpc_url = self._build_rpc_url(self.config.base_url)
-
-            logger.debug(f"Discovered RPC URL from agent card: {rpc_url}")
+                logger.debug(f"Agent card advertises URL: {service_url}")
+                logger.debug(f"Using configured base_url instead: {self.config.base_url}")
+            
+            # Always build RPC URL from configured base_url + endpoint path
+            rpc_url = self._build_rpc_url(self.config.base_url)
+            logger.debug(f"Using RPC URL: {rpc_url}")
             return rpc_url
+            
         except Exception as e:
             # Fallback to configured base_url + endpoint path if card fetch fails
             logger.warning(f"Could not fetch agent card, using configured endpoint: {e}")
