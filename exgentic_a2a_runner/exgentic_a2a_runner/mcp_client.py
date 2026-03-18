@@ -73,6 +73,29 @@ class MCPClient:
                 logger.warning(f"Error during MCP client shutdown: {e}")
         self._initialized = False
 
+    def list_tasks(self) -> list[str]:
+        """List all available task IDs.
+
+        Returns:
+            List of task ID strings
+
+        Raises:
+            RuntimeError: If task listing fails
+        """
+        if not self._initialized:
+            raise RuntimeError("MCP client not initialized")
+
+        logger.info("Listing available tasks")
+
+        try:
+            tasks = asyncio.run(self._async_list_tasks())
+            logger.info(f"Found {len(tasks)} tasks")
+            return tasks
+
+        except Exception as e:
+            logger.error(f"Failed to list tasks: {e}")
+            raise RuntimeError(f"Task listing failed: {e}")
+
     def create_session(self, task_id: Optional[str] = None) -> Tuple[str, str]:
         """Create a new benchmark session.
 

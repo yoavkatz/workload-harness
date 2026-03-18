@@ -51,8 +51,11 @@ class ExgenticAdapter:
             self.mcp_client.shutdown()
             self._initialized = False
 
-    def create_session(self) -> SessionData:
+    def create_session(self, task_id: Optional[str] = None) -> SessionData:
         """Create a new benchmark session.
+
+        Args:
+            task_id: Optional task ID. If not provided, will use the first available task.
 
         Returns:
             SessionData containing session_id and task
@@ -63,11 +66,11 @@ class ExgenticAdapter:
         if not self._initialized:
             raise RuntimeError("Exgentic adapter not initialized. Call initialize() first.")
 
-        logger.info("Creating new session")
+        logger.info(f"Creating new session{f' for task {task_id}' if task_id else ''}")
         created_at = time.time()
 
         try:
-            session_id, task = self.mcp_client.create_session()
+            session_id, task = self.mcp_client.create_session(task_id=task_id)
             
             self._session_count += 1
             logger.info(f"Created session {self._session_count}: {session_id}")
@@ -131,10 +134,30 @@ class ExgenticAdapter:
             logger.error(f"Failed to close session {session_id}: {e}")
             raise
 
-    def iterate_sessions(self) -> Iterator[SessionData]:
-        """Iterate over benchmark sessions.
+    def get_task_ids(self) -> list[str]:
+        """Get list of all available task IDs from the MCP server.
 
-        Creates sessions one at a time up to max_tasks limit.
+        Returns:
+            List of task ID strings
+
+        Raises:
+            RuntimeError: If adapter not initialized or task listing fails
+        """
+        if not self._initialized:
+            raise RuntimeError("Exgentic adapter not initialized. Call initialize() first.")
+
+        logger.info("Fetching list of available tasks")
+        task_ids = self.mcp_client.list_tasks()
+        logger.info(f"Found {len(task_ids)} available tasks")
+        return task_ids
+
+    def iterate_sessions(self, task_ids: list[str]) -> Iterator[SessionData]:
+        """Iterate over benchmark sessions for given task IDs.
+
+        Creates sessions sequentially for each task ID, respecting max_tasks configuration.
+
+        Args:
+            task_ids: List of task IDs to process
 
         Yields:
             SessionData for each session
@@ -142,22 +165,23 @@ class ExgenticAdapter:
         if not self._initialized:
             raise RuntimeError("Exgentic adapter not initialized. Call initialize() first.")
 
-        session_num = 0
         max_tasks = self.config.max_tasks
         
-        while True:
-            # Check if we've reached the limit
-            if max_tasks is not None and session_num >= max_tasks:
-                logger.info(f"Reached max_tasks limit: {max_tasks}")
-                break
-
+        # Limit task_ids if max_tasks is set
+        if max_tasks is not None:
+            task_ids = task_ids[:max_tasks]
+            logger.info(f"Processing {len(task_ids)} tasks (limited by max_tasks={max_tasks})")
+        else:
+            logger.info(f"Processing all {len(task_ids)} tasks")
+        
+        for idx, task_id in enumerate(task_ids, 1):
             try:
-                session_data = self.create_session()
-                session_num += 1
+                logger.info(f"Creating session {idx}/{len(task_ids)} for task {task_id}")
+                session_data = self.create_session(task_id=task_id)
                 yield session_data
 
             except Exception as e:
-                logger.error(f"Failed to create session {session_num + 1}: {e}")
+                logger.error(f"Failed to create session {idx} for task {task_id}: {e}")
                 raise
 
 
