@@ -96,7 +96,7 @@ class MCPClient:
             logger.error(f"Failed to list tasks: {e}")
             raise RuntimeError(f"Task listing failed: {e}")
 
-    def create_session(self, task_id: Optional[str] = None) -> Tuple[str, str]:
+    def create_session(self, task_id: str) -> Tuple[str, str]:
         """Create a new benchmark session.
 
         Args:
@@ -114,15 +114,7 @@ class MCPClient:
         logger.info("Creating new benchmark session")
 
         try:
-            # If no task_id provided, list tasks and use the first one
-            if task_id is None:
-                tasks = asyncio.run(self._async_list_tasks())
-                if not tasks:
-                    raise RuntimeError("No tasks available")
-                # tasks is a list of task ID strings, not dicts
-                task_id = tasks[0]
-                logger.info(f"Using first available task: {task_id}")
-            
+                  
             # At this point task_id is guaranteed to be a string
             assert task_id is not None, "task_id should not be None"
             result = asyncio.run(self._async_create_session(task_id))
@@ -267,4 +259,3 @@ class MCPClient:
                     arguments={"session_id": session_id}
                 )
 
-# Made with Bob

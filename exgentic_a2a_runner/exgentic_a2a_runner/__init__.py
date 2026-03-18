@@ -6,4 +6,3 @@ with Kagenti agents using the A2A protocol.
 
 __version__ = "0.1.0"
 
-# Made with Bob

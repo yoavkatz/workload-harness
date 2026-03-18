@@ -369,4 +369,3 @@ class OTELInstrumentation:
             self.session_creation_latency_histogram.record(duration_ms)
 
 
-# Made with Bob

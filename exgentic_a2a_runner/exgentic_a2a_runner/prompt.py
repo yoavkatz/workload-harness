@@ -28,4 +28,3 @@ When calling any benchmark-related tools or APIs, you MUST include the session_i
     return prompt
 
 
-# Made with Bob
