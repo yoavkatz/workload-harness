@@ -185,4 +185,3 @@ class ExgenticAdapter:
                 raise
 
 
-# Made with Bob
