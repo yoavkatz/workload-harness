@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("mcp.client.streamable_http").setLevel(logging.INFO)
+logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
 
 
 class SessionResult:
@@ -246,14 +246,19 @@ class Runner:
         try:
             self.initialize()
 
+            # Get list of all available task IDs
+            logger.info("Fetching available task IDs from Exgentic MCP server")
+            task_ids = self.exgentic.get_task_ids()
+            logger.info(f"Found {len(task_ids)} tasks to process")
+
             # Process sessions sequentially
-            for session_data in self.exgentic.iterate_sessions():
+            for session_data in self.exgentic.iterate_sessions(task_ids):
                 # Record session creation time
                 creation_time_ms = (time.time() - session_data.created_at) * 1000
                 # Note: We can't easily add this to a span since it's created before the span
                 # but we can log it
                 logger.debug(f"Session creation took {creation_time_ms:.2f}ms")
-
+                
                 result = self.process_session(session_data)
                 self.summary.add_result(result)
 
@@ -342,6 +347,7 @@ def main() -> int:
     try:
         # Load configuration from environment
         config = Config.from_env()
+        logger.info(f"Configuration loaded: {config}")
 
         # Create and run
         runner = Runner(config)
