@@ -27,8 +27,11 @@ if [ "$CURRENT_CONTEXT" != "kind-kagenti" ]; then
     fi
 fi
 
-AGENT_SERVICE=generic-agent-internal-gsm8k
-BENCHMARK_SERVICE=exgentic-mcp-gsm8k-mcp
+# Load environment variables if .env exists
+if [ -f "$(dirname "$0")/.env" ]; then
+    source "$(dirname "$0")/.env"
+fi
+
 echo ""
 echo "Setting up port forwarding..."
 echo "  - MCP Server: localhost:8000 -> $BENCHMARK_SERVICE.team1:8000"
