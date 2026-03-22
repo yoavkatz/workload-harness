@@ -35,7 +35,7 @@ fi
 echo ""
 echo "Setting up port forwarding..."
 echo "  - MCP Server: localhost:8000 -> $BENCHMARK_SERVICE.team1:8000"
-echo "  - A2A Agent:  localhost:8080 -> $AGENT_SERVICE.team1:8080"
+echo "  - A2A Agent:  localhost:8081 -> $AGENT_SERVICE.team1:8080"
 echo ""
 
 # Kill any existing port-forwards on these ports
@@ -50,7 +50,7 @@ kubectl port-forward -n team1 svc/$BENCHMARK_SERVICE 8000:8000 &
 PF_MCP_PID=$!
 
 echo "Starting port-forward for A2A agent..."
-kubectl port-forward -n team1 svc/$AGENT_SERVICE 8080:8080 &
+kubectl port-forward -n team1 svc/$AGENT_SERVICE 8081:8080 &
 PF_AGENT_PID=$!
 
 # Wait for port forwards to be ready
@@ -96,7 +96,7 @@ else
 fi
 
 echo -n "  A2A Agent:  "
-if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/.well-known/agent-card.json 2>/dev/null | grep -q "200\|404"; then
+if curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/.well-known/agent-card.json 2>/dev/null | grep -q "200\|404"; then
     echo "✓ Reachable"
 else
     echo "⚠ May not be reachable - this might be OK"
