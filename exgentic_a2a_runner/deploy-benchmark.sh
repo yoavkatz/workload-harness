@@ -240,8 +240,34 @@ sleep 3
 
 echo ""
 
-# Step 8: Deploy tool using Kagenti API
-echo "Step 8: Deploying tool via Kagenti API..."
+# Step 8: Fetch and parse benchmark environment variables
+echo "Step 8: Fetching benchmark environment variables..."
+ENV_CONTENT=$(curl -s "https://raw.githubusercontent.com/yoavkatz/agent-examples/refs/heads/feature/exgentic-mcp-server/mcp/exgentic_benchmarks/.env.${BENCHMARK_NAME}")
+
+if [ -z "$ENV_CONTENT" ] || echo "$ENV_CONTENT" | grep -q "404: Not Found"; then
+    echo "Warning: Could not fetch .env.${BENCHMARK_NAME} file, deploying without custom env vars"
+    ENV_VARS="[]"
+else
+    # Parse env vars using the Kagenti API
+    ENV_PARSE_RESPONSE=$(curl -s -X POST "$KAGENTI_API/api/v1/agents/parse-env" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -d "{\"content\": $(echo "$ENV_CONTENT" | jq -Rs .)}")
+    
+    ENV_VARS=$(echo "$ENV_PARSE_RESPONSE" | jq '.envVars')
+    
+    if [ "$ENV_VARS" = "null" ] || [ -z "$ENV_VARS" ]; then
+        echo "Warning: Could not parse environment variables, deploying without custom env vars"
+        ENV_VARS="[]"
+    else
+        echo "✓ Environment variables parsed"
+    fi
+fi
+
+echo ""
+
+# Step 9: Deploy tool using Kagenti API
+echo "Step 9: Deploying tool via Kagenti API..."
 
 # Create tool deployment JSON following Kagenti API format
 TOOL_JSON=$(cat <<EOF
@@ -253,6 +279,7 @@ TOOL_JSON=$(cat <<EOF
   "deploymentMethod": "image",
   "containerImage": "$IMAGE_NAME",
   "workloadType": "deployment",
+  "envVars": $ENV_VARS,
   "servicePorts": [
     {
       "name": "http",
@@ -301,16 +328,16 @@ else
 fi
 echo ""
 
-# Step 9: Patch imagePullPolicy to IfNotPresent for local images
-echo "Step 9: Patching imagePullPolicy to IfNotPresent..."
+# Step 10: Patch imagePullPolicy to IfNotPresent for local images
+echo "Step 10: Patching imagePullPolicy to IfNotPresent..."
 sleep 2  # Give the deployment a moment to be created
 kubectl patch deployment $TOOL_NAME -n $NAMESPACE -p '{"spec":{"template":{"spec":{"containers":[{"name":"mcp","imagePullPolicy":"IfNotPresent"}]}}}}' 2>/dev/null || echo "Warning: Could not patch imagePullPolicy"
 echo "✓ ImagePullPolicy patched"
 
 echo ""
 
-# Step 10: Wait for tool to be ready
-echo "Step 10: Waiting for tool to be ready..."
+# Step 11: Wait for tool to be ready
+echo "Step 11: Waiting for tool to be ready..."
 
 MAX_WAIT=120
 WAIT_INTERVAL=5
