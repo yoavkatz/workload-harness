@@ -2,12 +2,71 @@
 
 ## Prerequisites
 
-✅ kubectl configured with `kind-kagenti` context  
-✅ Services running in team1 namespace:
-- `exgentic-mcp-tau2-mcp` on port 8000
-- `generic-agent2` on port 8080
+✅ kubectl configured with `kind-kagenti` context
+✅ Kagenti cluster running with:
+- Kagenti backend in `kagenti-system` namespace
+- Keycloak in `keycloak` namespace
+- `team1` namespace for deployments
 
-## Quick Run
+## Option 1: Deploy Your Own Benchmark and Agent
+
+If you want to deploy a fresh benchmark and agent:
+
+### Step 1: Deploy the Benchmark (MCP Server)
+
+Deploy an Exgentic benchmark (e.g., GSM8K):
+
+```bash
+cd exgentic_a2a_runner
+./deploy-benchmark.sh gsm8k admin admin
+```
+
+This will:
+- Check for the benchmark image locally
+- Sync the image to the kind cluster if needed
+- Deploy the MCP server via Kagenti API
+- Wait for the deployment to be ready
+
+**Note:** You need to build the benchmark image first. Use 
+agent-examples/mcp/exgentic_benchmarks/build.sh to build the image locally.
+
+### Step 2: Deploy the Agent
+
+Deploy a generic A2A agent that will use the benchmark:
+
+```bash
+./deploy-agent.sh gsm8k admin admin
+```
+
+This will:
+- Deploy the generic agent via Kagenti API
+- Configure it to connect to the MCP server
+- Build the agent image from source
+- Wait for the deployment to be ready
+
+### Step 3: Update Configuration
+
+Update your `.env` file to use the deployed services:
+
+```bash
+# Update these values in .env
+AGENT_SERVICE=generic-agent-internal-gsm8k
+BENCHMARK_SERVICE=exgentic-mcp-gsm8k-mcp
+```
+
+### Step 4: Run the Harness
+
+Now run the harness with the deployed services:
+
+```bash
+./run-with-port-forward.sh
+```
+
+## Option 2: Use Existing Services
+
+If services are already deployed in the team1 namespace, you can use them directly.
+
+### Quick Run
 
 The easiest way to run the harness is using the provided script:
 
@@ -22,38 +81,28 @@ This script will:
 3. Run the harness with verbose logging
 4. Clean up port forwards on exit
 
-## Manual Run
-
-If you prefer to set up port forwarding manually:
-
-### Terminal 1: Port Forward MCP Server
-```bash
-kubectl port-forward -n team1 svc/exgentic-mcp-tau2-mcp 8000:8000
-```
-
-### Terminal 2: Port Forward A2A Agent
-```bash
-kubectl port-forward -n team1 svc/generic-agent2 8080:8080
-```
-
-### Terminal 3: Run Harness
-```bash
-cd exgentic_a2a_runner
-source .venv/bin/activate
-uv run exgentic-a2a-runner --verbose
-```
 
 ## Configuration
 
-The `.env` file is already configured for the Kagenti cluster:
+The `.env` file should be configured for your deployed services:
 
 ```bash
-EXGENTIC_MCP_SERVER_URL=http://localhost:8000
-A2A_BASE_URL=http://localhost:8080
-MAX_TASKS=3  # Start with 3 sessions for testing
+# Service names in Kubernetes
+AGENT_SERVICE=generic-agent-internal-gsm8k
+BENCHMARK_SERVICE=exgentic-mcp-gsm8k-mcp
+
+# Local endpoints (via port-forward)
+EXGENTIC_MCP_SERVER_URL=http://localhost:8000/mcp
+A2A_BASE_URL=http://localhost:8081
+
+# Test configuration
+MAX_TASKS=10  # Number of tasks to run
+MAX_PARALLEL_SESSIONS=10  # Parallel execution
 LOG_PROMPT=1  # Enable prompt logging
 LOG_RESPONSE=1  # Enable response logging
 ```
+
+**Important:** Note that the A2A agent now uses port 8081 (not 8080) to avoid conflicts with the kagenti-ui service.
 
 ## What to Expect
 
@@ -130,13 +179,56 @@ If sessions complete but evaluation fails:
 - Review agent logs to see what tools it's calling
 - Verify the agent has access to the MCP server for tool execution
 
+## Deployment Scripts Reference
+
+### deploy-benchmark.sh
+
+Deploys an Exgentic MCP benchmark server:
+
+```bash
+./deploy-benchmark.sh <benchmark-name> [keycloak-username] [keycloak-password]
+```
+
+**Arguments:**
+- `benchmark-name`: Name of the benchmark (e.g., gsm8k, tau2)
+- `keycloak-username`: Keycloak admin username (default: admin)
+- `keycloak-password`: Keycloak admin password (default: admin)
+
+**What it does:**
+1. Checks for local benchmark image
+2. Syncs image to kind cluster if needed
+3. Authenticates with Keycloak
+4. Deploys MCP server via Kagenti API
+5. Waits for deployment to be ready
+
+### deploy-agent.sh
+
+Deploys a generic A2A agent:
+
+```bash
+./deploy-agent.sh <benchmark-name> [keycloak-username] [keycloak-password]
+```
+
+**Arguments:**
+- `benchmark-name`: Name of the benchmark the agent will use
+- `keycloak-username`: Keycloak admin username (default: admin)
+- `keycloak-password`: Keycloak admin password (default: admin)
+
+**What it does:**
+1. Authenticates with Keycloak
+2. Fetches agent environment configuration
+3. Configures agent to connect to the MCP server
+4. Deploys agent via Kagenti API (builds from source)
+5. Waits for build and deployment to complete
+
 ## Next Steps
 
 After successful test run:
 1. Increase `MAX_TASKS` in `.env` for longer runs
 2. Enable OTLP exporter for telemetry collection
-3. Run with different benchmarks by changing the MCP server
+3. Deploy different benchmarks and test with various agents
 4. Analyze results and agent performance
+5. Access kagenti-ui at http://kagenti-ui.localtest.me:8080/ to monitor deployments
 
 ## Support
 
