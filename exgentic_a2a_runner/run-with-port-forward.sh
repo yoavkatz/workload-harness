@@ -39,9 +39,11 @@ echo "  - A2A Agent:  localhost:8081 -> $AGENT_SERVICE.team1:8080"
 echo ""
 
 # Kill any existing port-forwards on these ports
-echo "Cleaning up existing port-forwards..."
-pkill -f "port-forward.*$BENCHMARK_SERVICE" 2>/dev/null || true
-pkill -f "port-forward.*$AGENT_SERVICE" 2>/dev/null || true
+echo "Cleaning up existing port-forwards on ports 8000 and 8081..."
+# Kill any process using port 8000
+lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+# Kill any process using port 8081
+lsof -ti:8081 | xargs kill -9 2>/dev/null || true
 sleep 2
 
 # Start port forwarding in background
