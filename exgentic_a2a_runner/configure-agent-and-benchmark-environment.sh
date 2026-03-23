@@ -96,11 +96,19 @@ echo "Step 4: Updating benchmark deployment with Azure OpenAI settings..."
 
 # Check if benchmark deployment exists
 if kubectl get deployment $BENCHMARK_DEPLOYMENT -n $NAMESPACE >/dev/null 2>&1; then
+    # Set OPENAI_API_BASE for all benchmarks
     kubectl set env deployment/$BENCHMARK_DEPLOYMENT -n $NAMESPACE \
-        OPENAI_API_BASE="$OPENAI_API_BASE" \
-        EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL=openai/Azure/gpt-4o
+        OPENAI_API_BASE="$OPENAI_API_BASE"
     
-    echo "✓ Benchmark environment variables updated"
+    # Only set EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL for tau benchmarks
+    if [[ "$BENCHMARK_NAME" == tau* ]]; then
+        kubectl set env deployment/$BENCHMARK_DEPLOYMENT -n $NAMESPACE \
+            EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL=openai/Azure/gpt-4o
+        echo "✓ Benchmark environment variables updated (including user simulator model for tau benchmark)"
+    else
+        echo "✓ Benchmark environment variables updated"
+    fi
+    
     echo ""
     
     # Step 5: Wait for benchmark rollout
@@ -112,7 +120,9 @@ if kubectl get deployment $BENCHMARK_DEPLOYMENT -n $NAMESPACE >/dev/null 2>&1; t
     echo "Benchmark configuration applied:"
     echo "  Deployment: $BENCHMARK_DEPLOYMENT"
     echo "  OPENAI_API_BASE: $OPENAI_API_BASE"
-    echo "  EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL: openai/Azure/gpt-4o"
+    if [[ "$BENCHMARK_NAME" == tau* ]]; then
+        echo "  EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL: openai/Azure/gpt-4o"
+    fi
     echo "  OPENAI_API_KEY: (updated secret from env var)"
 else
     echo "⚠ Benchmark deployment not found, skipping"

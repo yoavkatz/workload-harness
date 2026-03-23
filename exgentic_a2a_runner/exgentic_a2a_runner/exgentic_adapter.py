@@ -112,26 +112,26 @@ class ExgenticAdapter:
             logger.error(f"Failed to evaluate session {session_id}: {e}")
             raise
 
-    def close_session(self, session_id: str) -> None:
-        """Close a benchmark session.
+    def delete_session(self, session_id: str) -> None:
+        """Delete a benchmark session.
 
         Args:
             session_id: Session identifier
 
         Raises:
-            RuntimeError: If adapter not initialized or close fails
+            RuntimeError: If adapter not initialized or deletion fails
         """
         if not self._initialized:
             raise RuntimeError("Exgentic adapter not initialized. Call initialize() first.")
 
-        logger.info(f"Closing session: {session_id}")
+        logger.info(f"Deleting session: {session_id}")
 
         try:
-            self.mcp_client.close_session(session_id)
-            logger.info(f"Session {session_id} closed successfully")
+            self.mcp_client.delete_session(session_id)
+            logger.info(f"Session {session_id} deleted successfully")
 
         except Exception as e:
-            logger.error(f"Failed to close session {session_id}: {e}")
+            logger.error(f"Failed to delete session {session_id}: {e}")
             raise
 
     def get_task_ids(self) -> list[str]:
