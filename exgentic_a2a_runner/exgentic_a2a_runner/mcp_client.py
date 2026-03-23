@@ -225,37 +225,57 @@ class MCPClient:
                 else:
                     raise RuntimeError(f"Unexpected content type: {type(content)}")
 
-    def close_session(self, session_id: str) -> None:
-        """Close a benchmark session.
+    def delete_session(self, session_id: str) -> None:
+        """Delete a benchmark session.
 
         Args:
-            session_id: Session ID to close
+            session_id: Session ID to delete
 
         Raises:
-            RuntimeError: If session closure fails
+            RuntimeError: If session deletion fails
         """
         if not self._initialized:
             raise RuntimeError("MCP client not initialized")
 
-        logger.info(f"Closing session {session_id}")
+        logger.info(f"Deleting session {session_id}")
 
         try:
-            asyncio.run(self._async_close_session(session_id))
-            logger.info(f"Session {session_id} closed")
+            asyncio.run(self._async_delete_session(session_id))
+            logger.info(f"Session {session_id} deleted")
 
         except Exception as e:
-            logger.error(f"Failed to close session {session_id}: {e}")
-            raise RuntimeError(f"Session closure failed: {e}")
+            logger.error(f"Failed to delete session {session_id}: {e}")
+            raise RuntimeError(f"Session deletion failed: {e}")
 
-    async def _async_close_session(self, session_id: str) -> None:
-        """Async session closure."""
+    async def _async_delete_session(self, session_id: str) -> None:
+        """Async session deletion."""
         async with streamable_http_client(self.mcp_url) as (read, write, get_session_id):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 
-                # Call close_session tool
-                await session.call_tool(
-                    "close_session",
+                # Call delete_session tool
+                result = await session.call_tool(
+                    "delete_session",
                     arguments={"session_id": session_id}
                 )
+                
+                # Check if the operation was successful
+                if not result.content:
+                    raise RuntimeError("Empty response from delete_session")
+                
+                # Check if it's an error response
+                if result.isError:
+                    content = result.content[0]
+                    error_msg = content.text if hasattr(content, 'text') else str(content)
+                    raise RuntimeError(f"Failed to delete session: {error_msg}")
+                
+                # Verify success response
+                content = result.content[0]
+                if hasattr(content, 'text'):
+                    import json
+                    response = json.loads(content.text)
+                    # Check for either "success" field or "status" field
+                    status = response.get("status", "")
+                    if not (status == "success"):
+                        raise RuntimeError(f"Session deletion failed: {response}")
 

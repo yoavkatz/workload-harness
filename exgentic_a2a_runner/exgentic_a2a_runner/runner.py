@@ -215,9 +215,9 @@ class Runner:
                 eval_duration_ms = (time.time() - eval_start) * 1000
                 self.otel.record_evaluation(span, eval_duration_ms)
 
-                # Close session
-                with self.otel.child_span("exgentic_a2a.mcp.close_session"):
-                    self.exgentic.close_session(session_id)
+                # Delete session
+                with self.otel.child_span("exgentic_a2a.mcp.delete_session"):
+                    self.exgentic.delete_session(session_id)
 
                 # Record success
                 self.otel.record_success(span, evaluation_result)
@@ -243,12 +243,12 @@ class Runner:
 
                 logger.error(f"Session {session_id} failed: {error_type}: {error_msg}")
 
-                # Try to close session even on failure
+                # Try to delete session even on failure
                 try:
-                    with self.otel.child_span("exgentic_a2a.mcp.close_session"):
-                        self.exgentic.close_session(session_id)
-                except Exception as close_error:
-                    logger.warning(f"Failed to close session {session_id}: {close_error}")
+                    with self.otel.child_span("exgentic_a2a.mcp.delete_session"):
+                        self.exgentic.delete_session(session_id)
+                except Exception as delete_error:
+                    logger.warning(f"Failed to delete session {session_id}: {delete_error}")
 
                 # Record failure
                 self.otel.record_failure(span, e, error_type)

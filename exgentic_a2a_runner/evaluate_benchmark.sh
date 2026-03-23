@@ -1,11 +1,29 @@
 #!/bin/bash
-# Helper script to set up port forwarding and run the Exgentic A2A Runner
+# Evaluate a specific Exgentic benchmark
+# Usage: ./evaluate_benchmark.sh <benchmark-name>
+# Example: ./evaluate_benchmark.sh gsm8k
 
 set -e
 
+BENCHMARK_NAME="$1"
+
+if [ -z "$BENCHMARK_NAME" ]; then
+    echo "Error: Benchmark name is required"
+    echo "Usage: $0 <benchmark-name>"
+    echo "Example: $0 gsm8k"
+    exit 1
+fi
+
+# Set service names based on benchmark name
+export AGENT_SERVICE="generic-agent-internal-${BENCHMARK_NAME}"
+export BENCHMARK_SERVICE="exgentic-mcp-${BENCHMARK_NAME}"
+
 echo "=========================================="
-echo "Exgentic A2A Runner - Port Forward Setup"
+echo "Exgentic A2A Runner - Benchmark Evaluation"
 echo "=========================================="
+echo "Benchmark: $BENCHMARK_NAME"
+echo "Agent Service: $AGENT_SERVICE"
+echo "Benchmark Service: $BENCHMARK_SERVICE"
 echo ""
 
 # Check if kubectl is available
