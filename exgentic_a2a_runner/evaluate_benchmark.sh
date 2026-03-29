@@ -14,9 +14,14 @@ if [ -z "$BENCHMARK_NAME" ]; then
     exit 1
 fi
 
-# Set service names based on benchmark name
+# Load environment variables if .env exists (before setting service names)
+if [ -f "$(dirname "$0")/.env" ]; then
+    source "$(dirname "$0")/.env"
+fi
+
+# Set service names based on benchmark name (override .env values)
 export AGENT_SERVICE="generic-agent-internal-${BENCHMARK_NAME}"
-export BENCHMARK_SERVICE="exgentic-mcp-${BENCHMARK_NAME}"
+export BENCHMARK_SERVICE="exgentic-mcp-${BENCHMARK_NAME}-mcp"
 
 echo "=========================================="
 echo "Exgentic A2A Runner - Benchmark Evaluation"
@@ -43,11 +48,6 @@ if [ "$CURRENT_CONTEXT" != "kind-kagenti" ]; then
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         exit 1
     fi
-fi
-
-# Load environment variables if .env exists
-if [ -f "$(dirname "$0")/.env" ]; then
-    source "$(dirname "$0")/.env"
 fi
 
 echo ""
