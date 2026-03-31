@@ -88,12 +88,11 @@ class OTELInstrumentation:
                 endpoint=self.config.exporter_endpoint,
                 insecure=self.config.exporter_insecure,
             )
+            trace_provider.add_span_processor(BatchSpanProcessor(span_exporter))
         else:
-            # Use console exporter for development
-            logger.info("Using console trace exporter (no OTLP endpoint configured)")
-            span_exporter = ConsoleSpanExporter()
+            # No exporter configured - traces will be collected but not exported
+            logger.info("No OTLP endpoint configured, traces will not be exported")
 
-        trace_provider.add_span_processor(BatchSpanProcessor(span_exporter))
         trace.set_tracer_provider(trace_provider)
         self._trace_provider = trace_provider
 
