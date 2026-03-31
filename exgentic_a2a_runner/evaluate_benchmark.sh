@@ -94,13 +94,13 @@ echo ""
 echo "Waiting for services to be fully started..."
 sleep 10
 
-# Start port forwarding in background
+# Start port forwarding in background (suppress "Handling connection" messages)
 echo "Starting port-forward for MCP server..."
-kubectl port-forward -n team1 svc/$BENCHMARK_SERVICE 7770:8000 &
+kubectl port-forward -n team1 svc/$BENCHMARK_SERVICE 7770:8000 >/dev/null 2>&1 &
 PF_MCP_PID=$!
 
 echo "Starting port-forward for A2A agent..."
-kubectl port-forward -n team1 svc/$AGENT_SERVICE 7701:8080 &
+kubectl port-forward -n team1 svc/$AGENT_SERVICE 7701:8080 >/dev/null 2>&1 &
 PF_AGENT_PID=$!
 
 # Wait for port forwards to be ready
