@@ -243,6 +243,67 @@ Each session creates a span (`exgentic_a2a.session`) with:
 └─────────────────────────────────────────────────────────┘
 ```
 
+## OpenTelemetry and Observability
+
+### Setting up Local Jaeger for Tracing
+
+To visualize traces and metrics locally, you can run Jaeger using Docker:
+
+#### 1. Start Jaeger All-in-One
+
+```bash
+docker run -d --name jaeger \
+  -e COLLECTOR_OTLP_ENABLED=true \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+```
+
+This starts Jaeger with:
+- **UI**: http://localhost:16686 (view traces)
+- **OTLP gRPC**: localhost:4317 (for trace/metric export)
+- **OTLP HTTP**: localhost:4318 (alternative protocol)
+
+#### 2. Configure the Runner
+
+Update your `.env` file to enable OTEL export:
+
+```bash
+# Enable OTLP export to Jaeger
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+#### 3. Run Your Benchmark
+
+```bash
+./evaluate_benchmark.sh appworld
+```
+
+#### 4. View Traces in Jaeger UI
+
+1. Open http://localhost:16686 in your browser
+2. Select `exgentic-a2a-runner` from the Service dropdown
+3. Click "Find Traces" to see all sessions
+4. Click on individual traces to see detailed spans
+
+#### 5. Stop Jaeger
+
+```bash
+docker stop jaeger
+docker rm jaeger
+```
+
+### What Gets Traced
+
+When OTEL is enabled, you'll see:
+
+- **Session spans**: Complete session lifecycle with timing
+- **MCP operations**: create_session, evaluate_session, close_session
+- **A2A requests**: Agent invocations with request/response sizes
+- **HTTP calls**: Auto-instrumented outbound requests
+- **Errors**: Failed operations with exception details
+
 ## Current Limitations
 
 - No retry mechanism for failed operations
