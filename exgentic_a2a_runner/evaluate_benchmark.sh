@@ -126,15 +126,15 @@ echo "  A2A Agent PID:  $PF_AGENT_PID"
 echo ""
 
 # Function to cleanup on exit
-#cleanup() {
-#    echo ""
-#    echo "Cleaning up port forwards..."
-#    kill $PF_MCP_PID 2>/dev/null || true
-#    kill $PF_AGENT_PID 2>/dev/null || true
-#    echo "Done."
-#}
-#
-#trap cleanup EXIT INT TERM
+cleanup() {
+    echo ""
+    echo "Cleaning up port forwards..."
+    kill $PF_MCP_PID 2>/dev/null || true
+    kill $PF_AGENT_PID 2>/dev/null || true
+    echo "Done."
+}
+
+trap cleanup EXIT INT TERM
 
 # Test connectivity
 echo "Testing connectivity..."

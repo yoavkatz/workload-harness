@@ -5,7 +5,7 @@ A standalone Python runner that integrates Exgentic benchmarks with Kagenti agen
 ## Features
 
 - **Exgentic MCP Integration**: Communicates with Exgentic MCP server for benchmark tasks
-- **Sequential session processing**: One session at a time for simplicity and reliability
+- **Parallel session processing**: Configurable concurrency for efficient benchmark execution
 - **A2A protocol support**: Communicates with remote agents using the A2A protocol via JSON-RPC over HTTP
 - **Session lifecycle management**: Explicit create → use → evaluate → close pattern
 - **OpenTelemetry instrumentation**: Comprehensive traces, metrics, and logs
@@ -64,15 +64,20 @@ cd exgentic_a2a_runner
 uv sync --python 3.12
 source .venv/bin/activate
 
-# Deploys mcp server using Kagenti Tool API based on local benchmark image created above
-./deploy-benchmark.sh appworld 
-# Deploy a generalist agent using Kagenti Agent API that connects to the benchmark mcp
-./deploy-agent.sh appworld 
+# Deploy MCP server using Kagenti Tool API based on local benchmark image created above
+./deploy-benchmark.sh appworld
 
-# 1. Updates OPENAI_API_BASE and OPENAI_API_KEY from environment env to running deployments
-# 2. Increase memory limit (workaround because was not able to specify resources on deployment)
-# 3. Sets the model used by the agents
+# Deploy a generalist agent using Kagenti Agent API that connects to the benchmark MCP
+./deploy-agent.sh appworld
+
+# Configure the deployment:
+# 1. Updates OPENAI_API_BASE and OPENAI_API_KEY from environment to running deployments
+# 2. Sets benchmark pod memory limit to 3GB
+# 3. Sets the model used by the agent (optional, defaults to Azure/gpt-4o)
 ./configure-agent-and-benchmark-environment.sh appworld GCP/gemini-2.5-pro
+
+# Or use default model:
+# ./configure-agent-and-benchmark-environment.sh appworld
 
 ```
 
@@ -109,6 +114,12 @@ Configure the .env file as needed.
 ## Usage
 
 ### Basic Usage
+
+The `evaluate_benchmark.sh` script automatically:
+- Sets up port forwarding (MCP server on localhost:7770, A2A agent on localhost:7701)
+- Waits for pods to be ready
+- Runs the benchmark evaluation
+- Cleans up port forwards on exit
 
 ```bash
 ./evaluate_benchmark.sh appworld
@@ -225,7 +236,6 @@ Each session creates a span (`exgentic_a2a.session`) with:
 
 ## Current Limitations
 
-- Sequential execution only (no concurrency)
 - No retry mechanism for failed operations
 - No streaming response support
 - Assumes MCP server is already configured for specific benchmark
