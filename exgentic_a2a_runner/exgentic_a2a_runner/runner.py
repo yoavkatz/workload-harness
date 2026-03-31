@@ -190,8 +190,12 @@ class Runner:
         ) as span:
             try:
                 # Build prompt with session_id
-                with self.otel.child_span("exgentic_a2a.prompt.build"):
+                with self.otel.child_span("exgentic_a2a.prompt.build") as prompt_span:
                     prompt = build_prompt(session_data.task, session_data.session_id)
+                    # Record prompt on the build span
+                    self.otel.record_prompt(prompt_span, prompt)
+                
+                # Also record on parent span for backward compatibility
                 self.otel.record_prompt(span, prompt)
 
                 if self.config.debug.log_prompt:
@@ -199,10 +203,16 @@ class Runner:
 
                 # Send A2A request
                 a2a_start = time.time()
-                with self.otel.child_span("exgentic_a2a.a2a.send_prompt"):
+                with self.otel.child_span("exgentic_a2a.a2a.send_prompt") as a2a_span:
                     response = self.a2a_client.send_prompt(prompt)
-                a2a_duration_ms = (time.time() - a2a_start) * 1000
+                    a2a_duration_ms = (time.time() - a2a_start) * 1000
+                    # Record prompt and response on the send span
+                    a2a_span.set_attribute("prompt.chars", len(prompt))
+                    a2a_span.set_attribute("prompt.text", prompt)
+                    self.otel.record_response(a2a_span, response)
+                    self.otel.record_a2a_request(a2a_span, a2a_duration_ms)
 
+                # Also record on parent span for backward compatibility
                 self.otel.record_a2a_request(span, a2a_duration_ms)
                 self.otel.record_response(span, response)
 
@@ -211,9 +221,16 @@ class Runner:
 
                 # Evaluate session
                 eval_start = time.time()
-                with self.otel.child_span("exgentic_a2a.mcp.evaluate_session"):
+                with self.otel.child_span("exgentic_a2a.mcp.evaluate_session") as eval_span:
                     evaluation_result = self.exgentic.evaluate_session(session_id)
-                eval_duration_ms = (time.time() - eval_start) * 1000
+                    eval_duration_ms = (time.time() - eval_start) * 1000
+                    # Record evaluation result on the evaluate span
+                    eval_span.set_attribute("exgentic.evaluation_result", evaluation_result)
+                    eval_span.set_attribute("exgentic.evaluation_duration_ms", eval_duration_ms)
+                    if self.otel.evaluation_latency_histogram:
+                        self.otel.evaluation_latency_histogram.record(eval_duration_ms)
+                
+                # Also record on parent span for backward compatibility
                 self.otel.record_evaluation(span, eval_duration_ms)
 
                 # Delete session
