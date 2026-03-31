@@ -30,8 +30,11 @@ The runner follows this execution model for each benchmark session:
 
 - Python 3.11 or 3.12 (Python 3.13 is **not supported** due to dependency compatibility)
 - [uv](https://docs.astral.sh/uv/) package manager
-- Access to an Exgentic MCP server
-- Access to an A2A-compatible agent endpoint (e.g., Kagenti generalist agent)
+- kubectl configured with `kind-kagenti` context
+- Kagenti cluster running with:
+  - Kagenti backend in `kagenti-system` namespace
+  - Keycloak in `keycloak` namespace
+  - `team1` namespace for deployments
 
 ### Install from source
 
@@ -40,7 +43,6 @@ The runner follows this execution model for each benchmark session:
 ```bash
 git clone git@github.com:kagenti/kagenti.git
 cd kagenti
-./run-install.sh --env dev --preload --extra-vars '{"container_engine": "podman"}'
 deployments/ansible/run-install.sh --env dev --preload --extra-vars '{"container_engine": "podman"}'
 ```
 
@@ -78,7 +80,12 @@ source .venv/bin/activate
 
 # Or use default model:
 # ./configure-agent-and-benchmark-environment.sh appworld
+```
 
+**Note:** The deploy scripts accept optional Keycloak credentials (default: admin/admin):
+```bash
+./deploy-benchmark.sh <benchmark-name> [keycloak-username] [keycloak-password]
+./deploy-agent.sh <benchmark-name> [keycloak-username] [keycloak-password]
 ```
 
 
@@ -113,17 +120,19 @@ Configure the .env file as needed.
 
 ## Usage
 
-### Basic Usage
+### Running Benchmarks
 
 The `evaluate_benchmark.sh` script automatically:
 - Sets up port forwarding (MCP server on localhost:7770, A2A agent on localhost:7701)
 - Waits for pods to be ready
+- Tests connectivity to both services
 - Runs the benchmark evaluation
 - Cleans up port forwards on exit
 
 ```bash
 ./evaluate_benchmark.sh appworld
 ```
+
 
 ## Output
 
@@ -242,27 +251,6 @@ Each session creates a span (`exgentic_a2a.session`) with:
 
 ## Troubleshooting
 
-### MCP Connection Issues
-
-If you see errors connecting to the MCP server:
-- Verify `EXGENTIC_MCP_SERVER_URL` is correct
-- Check that the MCP server is running and accessible
-- Ensure the MCP server supports the required tools: `create_session`, `evaluate_session`, `close_session`
-
-### A2A Communication Issues
-
-If the agent doesn't respond or times out:
-- Verify `A2A_BASE_URL` is correct
-- Check `A2A_TIMEOUT_SECONDS` is sufficient for your tasks
-- Ensure the agent is A2A-compatible and running
-- Check if `A2A_AUTH_TOKEN` is required and set correctly
-
-### Session Evaluation Failures
-
-If sessions complete but evaluation fails:
-- Check agent logs to see if it's using the session_id correctly
-- Verify the agent has access to the benchmark tools via MCP
-- Ensure the agent is calling tools with the correct session_id parameter
 
 ## Development
 
@@ -296,8 +284,18 @@ Contributions are welcome! Please ensure:
 
 See LICENSE file in the repository root.
 
-## Support
+## Additional Resources
 
-For issues and questions:
-- GitHub Issues: https://github.com/kagenti/workload-harness/issues
-- Related Issue: https://github.com/kagenti/kagenti/issues/963
+- **Kagenti UI**: Access at http://kagenti-ui.localtest.me:8080/ to monitor deployments
+- **GitHub Issues**: https://github.com/kagenti/workload-harness/issues
+- **Related Issue**: https://github.com/kagenti/kagenti/issues/963
+
+## Next Steps
+
+After successful test run:
+1. Increase `MAX_TASKS` in `.env` for longer runs
+2. Adjust `MAX_PARALLEL_SESSIONS` for different concurrency levels
+3. Enable OTLP exporter for telemetry collection
+4. Deploy different benchmarks (gsm8k, tau2, appworld)
+5. Test with various models via configure script
+6. Analyze results and agent performance in Kagenti UI
