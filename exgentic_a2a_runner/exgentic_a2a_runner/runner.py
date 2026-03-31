@@ -386,16 +386,19 @@ Environment Variables:
   OTEL_RESOURCE_ATTRIBUTES  Additional resource attributes
   OTEL_EXPORTER_OTLP_INSECURE  Use insecure connection for OTLP (default: true)
 
+  LOG_LEVEL                 Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
   LOG_PROMPT                Log prompt details (default: 0)
   LOG_RESPONSE              Log response details (default: 0)
         """,
     )
 
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose logging",
+        "--log-level",
+        "-l",
+        type=str,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default=None,
+        help="Set log level (DEBUG, INFO, WARNING, ERROR). Overrides LOG_LEVEL environment variable.",
     )
 
     return parser.parse_args()
@@ -409,9 +412,18 @@ def main() -> int:
     """
     args = parse_args()
 
+    # Determine log level from args or environment
+    import os
+    if args.log_level:
+        log_level_str = args.log_level
+    else:
+        # Check environment variable
+        log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    
     # Set log level
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    logging.getLogger().setLevel(log_level)
+    logger.info(f"Log level set to: {log_level_str}")
 
     try:
         # Load configuration from environment
