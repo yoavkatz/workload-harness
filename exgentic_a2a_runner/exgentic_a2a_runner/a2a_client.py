@@ -199,6 +199,11 @@ class A2AProxyClient:
         Raises:
             ValueError: If task format is invalid or task failed
         """
+        import json
+        
+        # Log the full task response for debugging
+        logger.debug("Full task response:\n%s", json.dumps(task, indent=2, default=str))
+        
         status = task.get("status", {})
         state = status.get("state")
         extracted_text = None
@@ -214,9 +219,11 @@ class A2AProxyClient:
                         text_parts = []
                         for part in parts:
                             if isinstance(part, dict) and part.get("kind") == "text":
-                                text = part.get("text", "")
-                                if text:
+                                # Allow empty strings - check for None instead
+                                text = part.get("text")
+                                if text is not None:
                                     text_parts.append(text)
+                        # Join all text parts, even if some are empty
                         if text_parts:
                             extracted_text = "\n".join(text_parts)
 
@@ -258,7 +265,11 @@ class A2AProxyClient:
             else:
                 raise ValueError("Task was rejected")
 
-        # For completed tasks, return the extracted text
+        # For completed tasks, return the extracted text (or empty string if none)
+        if state == "completed":
+            return extracted_text or ""
+        
+        # For other states without extracted text, raise error
         if extracted_text:
             return extracted_text
 
