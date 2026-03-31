@@ -111,6 +111,7 @@ Then edit the .env file as needed.
 
 | Environment Variable | Default | Description |
 | --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | Log level for the runner. Set to `DEBUG` for verbose logging with detailed debug information. Options: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 | `LOG_PROMPT` | `0` | Log prompt payloads for debugging (1 to enable). |
 | `LOG_RESPONSE` | `0` | Log response payloads for debugging (1 to enable). |
 

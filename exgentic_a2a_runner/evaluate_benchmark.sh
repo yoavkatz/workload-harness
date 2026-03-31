@@ -181,10 +181,16 @@ fi
 export EXGENTIC_MCP_SERVER_URL="http://localhost:7770/mcp"
 export A2A_BASE_URL="http://localhost:7701"
 
-# Run the harness
-echo "Running: uv run exgentic-a2a-runner --verbose"
+# Run the harness with optional log level
+LOG_LEVEL_ARG=""
+if [ -n "${LOG_LEVEL}" ]; then
+    LOG_LEVEL_ARG="--log-level ${LOG_LEVEL}"
+    echo "Running: uv run exgentic-a2a-runner --log-level ${LOG_LEVEL}"
+else
+    echo "Running: uv run exgentic-a2a-runner"
+fi
 echo ""
-uv run exgentic-a2a-runner --verbose
+uv run exgentic-a2a-runner $LOG_LEVEL_ARG
 
 # Cleanup will happen automatically via trap
 
