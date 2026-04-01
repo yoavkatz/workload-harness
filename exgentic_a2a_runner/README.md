@@ -26,9 +26,12 @@ The runner follows this execution model for each benchmark session:
 
 ## Installation
 
+> **⏱️ Estimated Setup Time:** ~15 minutes (excluding container image pulls)
+
 ### Prerequisites
 
-- Python 3.11 or 3.12 (Python 3.13 is **not supported** due to dependency compatibility)
+- Python 3.11 or 3.12 (Python 3.13+ is **not supported** due to dependency compatibility)
+  - **Note:** The `uv` package manager will automatically use Python 3.12 when you run `uv sync --python 3.12`, regardless of your system Python version
 - [uv](https://docs.astral.sh/uv/) package manager
 - kubectl configured with `kind-kagenti` context
 - Kagenti cluster running with:
@@ -43,6 +46,11 @@ The runner follows this execution model for each benchmark session:
 ```bash
 git clone git@github.com:kagenti/kagenti.git
 cd kagenti
+
+# Create secret values file (required before installation)
+cp deployments/envs/secret_values.yaml.example deployments/envs/.secret_values.yaml
+# Edit .secret_values.yaml if you need to add API keys or credentials
+
 deployments/ansible/run-install.sh --env dev --preload --extra-vars '{"container_engine": "podman"}'
 ```
 
@@ -75,7 +83,7 @@ source .venv/bin/activate
 # Configure the deployment:
 # 1. Updates OPENAI_API_BASE and OPENAI_API_KEY from environment to running deployments
 # 2. Sets benchmark pod memory limit to 3GB
-# 3. Sets the model used by the agent (optional, defaults to Azure/gpt-4o)
+# 3. Sets the model used by the agent (optional, defaults to Azure/gpt-4o).  For appworld, use gemini-2.5-pro or other models, because open ai models can not handle the number of tools in appworld, without special tool shortlisting.
 ./configure-agent-and-benchmark-environment.sh appworld GCP/gemini-2.5-pro
 
 # Or use default model:
@@ -91,7 +99,9 @@ source .venv/bin/activate
 
 ## Configuration
 
-The `evaluate_benchmark.sh` script automatically configures `EXGENTIC_MCP_SERVER_URL` and `A2A_BASE_URL` for port-forwarded services. To customize other settings:
+### Before Running Evaluations
+
+**Required:** Create and configure your environment file:
 
 ```bash
 cp example.env .env
