@@ -1,7 +1,6 @@
 #!/bin/bash
 # Evaluate a specific Exgentic benchmark
-# Usage: ./evaluate_benchmark.sh <benchmark-name> [agent-name]
-# Example: ./evaluate_benchmark.sh gsm8k
+# Usage: ./evaluate_benchmark.sh <benchmark-name> <agent-name>
 # Example: ./evaluate_benchmark.sh tau2 tool_calling
 
 set -e
@@ -9,10 +8,9 @@ set -e
 BENCHMARK_NAME="$1"
 AGENT_NAME_INPUT="$2"
 
-if [ -z "$BENCHMARK_NAME" ]; then
-    echo "Error: Benchmark name is required"
-    echo "Usage: $0 <benchmark-name> [agent-name]"
-    echo "Example: $0 gsm8k"
+if [ -z "$BENCHMARK_NAME" ] || [ -z "$AGENT_NAME_INPUT" ]; then
+    echo "Error: Benchmark name and agent name are required"
+    echo "Usage: $0 <benchmark-name> <agent-name>"
     echo "Example: $0 tau2 tool_calling"
     exit 1
 fi
@@ -22,21 +20,15 @@ if [ -f "$(dirname "$0")/.env" ]; then
     source "$(dirname "$0")/.env"
 fi
 
-# Determine agent service name based on agent name input
-if [ -z "$AGENT_NAME_INPUT" ] || [ "$AGENT_NAME_INPUT" = "generic_agent" ]; then
-    # Default to generic agent
-    export AGENT_SERVICE="generic-agent-internal-${BENCHMARK_NAME}"
+# Construct agent service name
+if [[ "$AGENT_NAME_INPUT" == exgentic-a2a-* ]]; then
+    FULL_AGENT_NAME="$AGENT_NAME_INPUT"
 else
-    # Custom agent - construct name similar to deploy-agent.sh
-    if [[ "$AGENT_NAME_INPUT" == exgentic-a2a-* ]]; then
-        FULL_AGENT_NAME="$AGENT_NAME_INPUT"
-    else
-        FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME_INPUT}"
-    fi
-    # Replace underscores with hyphens for Kubernetes compatibility
-    AGENT_SERVICE="${FULL_AGENT_NAME}-${BENCHMARK_NAME}"
-    AGENT_SERVICE="${AGENT_SERVICE//_/-}"
+    FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME_INPUT}"
 fi
+# Replace underscores with hyphens for Kubernetes compatibility
+export AGENT_SERVICE="${FULL_AGENT_NAME}-${BENCHMARK_NAME}"
+AGENT_SERVICE="${AGENT_SERVICE//_/-}"
 
 # Set benchmark service name (override .env values)
 export BENCHMARK_SERVICE="exgentic-mcp-${BENCHMARK_NAME}-mcp"

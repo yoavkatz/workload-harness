@@ -1,7 +1,7 @@
 #!/bin/bash
 # Configure agent environment settings
-# Usage: ./configure-agent.sh <benchmark-name> [agent-name] [model-name]
-# Example: ./configure-agent.sh gsm8k
+# Usage: ./configure-agent.sh <benchmark-name> <agent-name> [model-name]
+# Example: ./configure-agent.sh tau2 tool_calling
 # Example: ./configure-agent.sh tau2 tool_calling Azure/gpt-4o-mini
 # This script updates the Kubernetes secret and environment variables for the agent
 
@@ -11,31 +11,25 @@ BENCHMARK_NAME="$1"
 AGENT_NAME_INPUT="$2"
 MODEL_NAME="${3:-Azure/gpt-4o}"  # Default to Azure/gpt-4o if not provided
 
-if [ -z "$BENCHMARK_NAME" ]; then
-    echo "Error: Benchmark name is required"
-    echo "Usage: $0 <benchmark-name> [agent-name] [model-name]"
-    echo "Example: $0 gsm8k"
+if [ -z "$BENCHMARK_NAME" ] || [ -z "$AGENT_NAME_INPUT" ]; then
+    echo "Error: Benchmark name and agent name are required"
+    echo "Usage: $0 <benchmark-name> <agent-name> [model-name]"
+    echo "Example: $0 tau2 tool_calling"
     echo "Example: $0 tau2 tool_calling Azure/gpt-4o-mini"
     exit 1
 fi
 
 NAMESPACE="team1"
 
-# Determine agent deployment name based on agent name input
-if [ -z "$AGENT_NAME_INPUT" ] || [ "$AGENT_NAME_INPUT" = "generic_agent" ]; then
-    # Default to generic agent
-    AGENT_NAME="generic-agent-internal-${BENCHMARK_NAME}"
+# Construct agent deployment name
+if [[ "$AGENT_NAME_INPUT" == exgentic-a2a-* ]]; then
+    FULL_AGENT_NAME="$AGENT_NAME_INPUT"
 else
-    # Custom agent - construct name similar to deploy-agent.sh
-    if [[ "$AGENT_NAME_INPUT" == exgentic-a2a-* ]]; then
-        FULL_AGENT_NAME="$AGENT_NAME_INPUT"
-    else
-        FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME_INPUT}"
-    fi
-    # Replace underscores with hyphens for Kubernetes compatibility
-    AGENT_NAME="${FULL_AGENT_NAME}-${BENCHMARK_NAME}"
-    AGENT_NAME="${AGENT_NAME//_/-}"
+    FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME_INPUT}"
 fi
+# Replace underscores with hyphens for Kubernetes compatibility
+AGENT_NAME="${FULL_AGENT_NAME}-${BENCHMARK_NAME}"
+AGENT_NAME="${AGENT_NAME//_/-}"
 
 echo "=========================================="
 echo "Configuring Agent Environment"
