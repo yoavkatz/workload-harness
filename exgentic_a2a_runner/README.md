@@ -78,18 +78,10 @@ source .venv/bin/activate
 ./deploy-benchmark.sh tau2
 
 # Deploy an agent using Kagenti Agent API that connects to the benchmark MCP
-# Option 1: Deploy generic agent (default)
-./deploy-agent.sh tau2 generic_agent
-
-# Option 2: Deploy custom agent (e.g., tool_calling)
 ./deploy-agent.sh tau2 tool_calling
 
 # Configure the agent deployment:
 # Updates OPENAI_API_BASE, OPENAI_API_KEY, and model settings
-# For generic agent:
-./configure-agent.sh tau2 generic_agent Azure/gpt-4o
-
-# For custom agent:
 ./configure-agent.sh tau2 tool_calling Azure/gpt-4o
 
 # Configure the benchmark deployment:
@@ -105,7 +97,7 @@ source .venv/bin/activate
 ./deploy-agent.sh <benchmark-name> <agent-name> [keycloak-username] [keycloak-password]
 ```
 
-**Agent Naming:** When deploying custom agents, underscores in agent names are automatically converted to hyphens for Kubernetes compatibility (e.g., `tool_calling` becomes `tool-calling`).
+**Agent Naming:** Underscores in agent names are automatically converted to hyphens for Kubernetes compatibility (e.g., `tool_calling` becomes `tool-calling`).
 
 
 ## Configuration
@@ -169,10 +161,6 @@ The `evaluate_benchmark.sh` script automatically:
 - Cleans up port forwards on exit
 
 ```bash
-# Run with generic agent (default)
-./evaluate_benchmark.sh tau2
-
-# Run with custom agent
 ./evaluate_benchmark.sh tau2 tool_calling
 ```
 
