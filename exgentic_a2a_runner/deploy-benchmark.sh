@@ -8,7 +8,7 @@
 set -e
 
 # Default values
-MODEL_NAME="Azure/gpt-4o"
+MODEL_NAME="Azure/gpt-4.1"
 KEYCLOAK_USERNAME="admin"
 KEYCLOAK_PASSWORD="admin"
 BENCHMARK_NAME=""
@@ -322,14 +322,14 @@ fi
 
 # Add runtime configuration environment variables
 if [ -n "$OPENAI_API_BASE" ]; then
-    echo "Adding OPENAI_API_BASE to environment variables"
+    echo "Adding OPENAI_API_BASE to environment v   ariables"
     ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"OPENAI_API_BASE\", \"value\": \"$OPENAI_API_BASE\"}]")
 fi
 
 # Only set EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL for tau benchmarks
 if [[ "$BENCHMARK_NAME" == tau* ]] && [ -n "$MODEL_NAME" ]; then
     echo "Adding EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL for tau benchmark"
-    ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL\", \"value\": \"openai/$MODEL_NAME\"}]")
+    ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL\", \"value\": \"$MODEL_NAME\"}]")
 fi
 
 echo "✓ Environment variables prepared for deployment"
@@ -505,7 +505,7 @@ if [ -n "$OPENAI_API_BASE" ]; then
     echo "  Memory Limit: 3Gi"
     echo "  OPENAI_API_BASE: $OPENAI_API_BASE"
     if [[ "$BENCHMARK_NAME" == tau* ]]; then
-        echo "  EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL: openai/$MODEL_NAME"
+        echo "  EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL: $MODEL_NAME"
     fi
     if [ -n "$OPENAI_API_KEY" ]; then
         echo "  OPENAI_API_KEY: (updated from env var)"

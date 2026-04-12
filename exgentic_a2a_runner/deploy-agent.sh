@@ -7,7 +7,7 @@
 set -e
 
 # Default values
-MODEL_NAME="Azure/gpt-4o"
+MODEL_NAME="Azure/gpt-4.1"
 KEYCLOAK_USERNAME="admin"
 KEYCLOAK_PASSWORD="admin"
 BENCHMARK_NAME=""
