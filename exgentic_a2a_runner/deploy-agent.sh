@@ -324,23 +324,40 @@ if [ "$ENV_VARS" = "null" ] || [ -z "$ENV_VARS" ]; then
     exit 1
 fi
 
-echo "✓ Environment variables parsed"
+echo "✓ Environment variables parsed from .env file"
 
 echo ""
 
-# Step 7: Deploy agent via Kagenti API
-echo "Step 7: Deploying agent via Kagenti API..."
+# Step 7: Prepare environment variables for deployment
+echo "Step 7: Preparing environment variables for deployment..."
 
 # Add MCP_URL(S) to environment variables
 MCP_URL="http://${TOOL_NAME}-mcp:8000/mcp"
 
 if [ "$DEPLOYMENT_TYPE" = "source" ]; then
     # Generic agent uses MCP_URLS
-    ENV_VARS_WITH_MCP=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"MCP_URLS\", \"value\": \"$MCP_URL\"}]")
+    ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"MCP_URLS\", \"value\": \"$MCP_URL\"}]")
 else
     # Exgentic agent uses MCP_URL
-    ENV_VARS_WITH_MCP=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"MCP_URL\", \"value\": \"$MCP_URL\"}]")
+    ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"MCP_URL\", \"value\": \"$MCP_URL\"}]")
 fi
+
+# Add runtime configuration environment variables
+if [ -n "$OPENAI_API_BASE" ]; then
+    echo "Adding LLM_API_BASE and OPENAI_API_BASE to environment variables"
+    ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS_WITH_CONFIG" | jq ". + [{\"name\": \"LLM_API_BASE\", \"value\": \"$OPENAI_API_BASE\"}, {\"name\": \"OPENAI_API_BASE\", \"value\": \"$OPENAI_API_BASE\"}]")
+fi
+
+if [ -n "$MODEL_NAME" ]; then
+    echo "Adding LLM_MODEL and EXGENTIC_SET_AGENT_MODEL to environment variables"
+    ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS_WITH_CONFIG" | jq ". + [{\"name\": \"LLM_MODEL\", \"value\": \"$MODEL_NAME\"}, {\"name\": \"EXGENTIC_SET_AGENT_MODEL\", \"value\": \"$MODEL_NAME\"}]")
+fi
+
+echo "✓ Environment variables prepared for deployment"
+echo ""
+
+# Step 8: Deploy agent via Kagenti API
+echo "Step 8: Deploying agent via Kagenti API..."
 
 if [ "$DEPLOYMENT_TYPE" = "source" ]; then
     # Deploy generic agent from source
@@ -356,7 +373,7 @@ if [ "$DEPLOYMENT_TYPE" = "source" ]; then
   "framework": "custom",
   "deploymentMethod": "source",
   "workloadType": "deployment",
-  "envVars": $ENV_VARS_WITH_MCP,
+  "envVars": $ENV_VARS_WITH_CONFIG,
   "servicePorts": [
     {
       "name": "http",
@@ -386,7 +403,7 @@ else
   "deploymentMethod": "image",
   "containerImage": "$IMAGE_NAME",
   "workloadType": "deployment",
-  "envVars": $ENV_VARS_WITH_MCP,
+  "envVars": $ENV_VARS_WITH_CONFIG,
   "servicePorts": [
     {
       "name": "http",
@@ -429,9 +446,9 @@ fi
 
 echo ""
 
-# Step 8: Wait for build to complete (only for source deployments)
+# Step 9: Wait for build to complete (only for source deployments)
 if [ "$DEPLOYMENT_TYPE" = "source" ]; then
-    echo "Step 8: Waiting for build to complete..."
+    echo "Step 9: Waiting for build to complete..."
     BUILD_RUN_NAME=$(echo "$RESPONSE" | jq -r '.message' | grep -o "BuildRun: '[^']*'" | sed "s/BuildRun: '\([^']*\)'/\1/")
     
     if [ -z "$BUILD_RUN_NAME" ]; then
@@ -467,15 +484,15 @@ if [ "$DEPLOYMENT_TYPE" = "source" ]; then
     echo ""
 else
     # For image deployments, patch imagePullPolicy
-    echo "Step 8: Patching imagePullPolicy to IfNotPresent..."
+    echo "Step 9: Patching imagePullPolicy to IfNotPresent..."
     sleep 2  # Give the deployment a moment to be created
     kubectl patch deployment $AGENT_NAME -n $NAMESPACE -p '{"spec":{"template":{"spec":{"containers":[{"name":"agent","imagePullPolicy":"IfNotPresent"}]}}}}' 2>/dev/null || echo "Warning: Could not patch imagePullPolicy"
     echo "✓ ImagePullPolicy patched"
     echo ""
 fi
 
-# Step 9: Wait for agent deployment to be created and ready
-echo "Step 9: Waiting for agent deployment to be created..."
+# Step 10: Wait for agent deployment to be created and ready
+echo "Step 10: Waiting for agent deployment to be created..."
 
 # Wait for deployment to be created (up to 2 minutes)
 for i in {1..24}; do
@@ -504,8 +521,42 @@ fi
 echo "✓ Agent deployment is ready"
 echo ""
 
-# Step 10: Test agent card access
-echo "Step 10: Testing agent card access..."
+# Step 11: Update openai-secret
+echo "=========================================="
+echo "Final Configuration"
+echo "=========================================="
+echo ""
+
+# Step 11.1: Update the openai-secret with current OPENAI_API_KEY
+echo "Step 11.1: Updating openai-secret with OPENAI_API_KEY..."
+
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo "Warning: OPENAI_API_KEY environment variable is not set"
+    echo "Skipping secret update"
+else
+    # Encode the API key in base64
+    ENCODED_KEY=$(echo -n "$OPENAI_API_KEY" | base64)
+    
+    # Patch the secret
+    kubectl patch secret openai-secret -n $NAMESPACE --type='json' -p="[
+      {
+        \"op\": \"replace\",
+        \"path\": \"/data/apikey\",
+        \"value\": \"$ENCODED_KEY\"
+      }
+    ]" 2>/dev/null && echo "✓ Secret updated" || echo "Warning: Could not update secret"
+fi
+
+echo ""
+
+# Step 11.2: Wait for deployment to stabilize
+echo "Step 11.2: Waiting for deployment to stabilize..."
+kubectl rollout status deployment/$AGENT_NAME -n $NAMESPACE --timeout=120s
+echo "✓ Deployment stable"
+echo ""
+
+# Step 12: Test agent card access
+echo "Step 12: Testing agent card access..."
 
 # Check if service exists
 if ! kubectl get svc $AGENT_NAME -n $NAMESPACE >/dev/null 2>&1; then
@@ -554,63 +605,8 @@ else
 fi
 
 echo ""
-
-# Step 11: Configure agent environment settings
 echo "=========================================="
-echo "Configuring Agent Environment"
-echo "=========================================="
-echo ""
-
-# Step 11.1: Update the openai-secret with current OPENAI_API_KEY
-echo "Step 11.1: Updating openai-secret with OPENAI_API_KEY..."
-
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "Warning: OPENAI_API_KEY environment variable is not set"
-    echo "Skipping secret update"
-else
-    # Encode the API key in base64
-    ENCODED_KEY=$(echo -n "$OPENAI_API_KEY" | base64)
-    
-    # Patch the secret
-    kubectl patch secret openai-secret -n $NAMESPACE --type='json' -p="[
-      {
-        \"op\": \"replace\",
-        \"path\": \"/data/apikey\",
-        \"value\": \"$ENCODED_KEY\"
-      }
-    ]" 2>/dev/null && echo "✓ Secret updated" || echo "Warning: Could not update secret"
-fi
-
-echo ""
-
-# Step 11.2: Update agent deployment with Azure OpenAI settings
-echo "Step 11.2: Updating agent deployment with Azure OpenAI settings..."
-
-if [ -z "$OPENAI_API_BASE" ]; then
-    echo "Warning: OPENAI_API_BASE environment variable is not set"
-    echo "Skipping environment variable configuration"
-else
-    # Use kubectl set env to update environment variables
-    kubectl set env deployment/$AGENT_NAME -n $NAMESPACE \
-        LLM_API_BASE="$OPENAI_API_BASE" \
-        OPENAI_API_BASE="$OPENAI_API_BASE" \
-        LLM_MODEL="$MODEL_NAME" \
-        EXGENTIC_SET_AGENT_MODEL="$MODEL_NAME" 2>/dev/null || echo "Warning: Could not set environment variables"
-
-    echo "✓ Agent environment variables updated"
-    echo ""
-
-    # Step 11.3: Wait for agent rollout
-    echo "Step 11.3: Waiting for agent deployment rollout..."
-    kubectl rollout status deployment/$AGENT_NAME -n $NAMESPACE --timeout=120s
-
-    echo "✓ Agent rollout complete"
-    echo ""
-fi
-
-echo ""
-echo "=========================================="
-echo "Deployment and Configuration Complete!"
+echo "Deployment Complete!"
 echo "=========================================="
 echo ""
 echo "Agent configuration:"
