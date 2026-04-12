@@ -297,7 +297,7 @@ sleep 3
 echo ""
 
 # Step 8: Fetch and parse benchmark environment variables
-echo "Step 8: Fetching benchmark environment variables..."
+echo "Step 8: Fetching and preparing benchmark environment variables..."
 ENV_CONTENT=$(curl -s "https://raw.githubusercontent.com/yoavkatz/agent-examples/refs/heads/feature/exgentic-mcp-server/mcp/exgentic_benchmarks/.env.${BENCHMARK_NAME}")
 
 if [ -z "$ENV_CONTENT" ] || echo "$ENV_CONTENT" | grep -q "404: Not Found"; then
@@ -316,10 +316,23 @@ else
         echo "Warning: Could not parse environment variables, deploying without custom env vars"
         ENV_VARS="[]"
     else
-        echo "✓ Environment variables parsed"
+        echo "✓ Environment variables parsed from .env file"
     fi
 fi
 
+# Add runtime configuration environment variables
+if [ -n "$OPENAI_API_BASE" ]; then
+    echo "Adding OPENAI_API_BASE to environment variables"
+    ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"OPENAI_API_BASE\", \"value\": \"$OPENAI_API_BASE\"}]")
+fi
+
+# Only set EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL for tau benchmarks
+if [[ "$BENCHMARK_NAME" == tau* ]] && [ -n "$MODEL_NAME" ]; then
+    echo "Adding EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL for tau benchmark"
+    ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL\", \"value\": \"openai/$MODEL_NAME\"}]")
+fi
+
+echo "✓ Environment variables prepared for deployment"
 echo ""
 
 # Step 9: Deploy tool using Kagenti API
@@ -436,9 +449,9 @@ fi
 
 echo ""
 
-# Step 12: Configure benchmark environment settings
+# Step 12: Update openai-secret and set memory limit
 echo "=========================================="
-echo "Configuring Benchmark Environment"
+echo "Final Configuration"
 echo "=========================================="
 echo ""
 
@@ -464,40 +477,20 @@ fi
 
 echo ""
 
-# Step 12.2: Update benchmark deployment with Azure OpenAI settings
-echo "Step 12.2: Updating benchmark deployment with Azure OpenAI settings..."
+# Step 12.2: Set memory limit
+echo "Step 12.2: Setting memory limit..."
 
-if [ -z "$OPENAI_API_BASE" ]; then
-    echo "Warning: OPENAI_API_BASE environment variable is not set"
-    echo "Skipping environment variable configuration"
-else
-    # Set memory limit to 3GB
-    kubectl set resources deployment/$TOOL_NAME -n $NAMESPACE \
-        --limits=memory=3Gi 2>/dev/null && echo "✓ Benchmark memory limit set to 3Gi" || echo "Warning: Could not set memory limit"
-    
-    echo ""
-    
-    # Set OPENAI_API_BASE for all benchmarks
-    kubectl set env deployment/$TOOL_NAME -n $NAMESPACE \
-        OPENAI_API_BASE="$OPENAI_API_BASE" 2>/dev/null || echo "Warning: Could not set OPENAI_API_BASE"
-    
-    # Only set EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL for tau benchmarks
-    if [[ "$BENCHMARK_NAME" == tau* ]]; then
-        kubectl set env deployment/$TOOL_NAME -n $NAMESPACE \
-            EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL="openai/$MODEL_NAME" 2>/dev/null || echo "Warning: Could not set user simulator model"
-        echo "✓ Benchmark environment variables updated (including user simulator model for tau benchmark)"
-    else
-        echo "✓ Benchmark environment variables updated"
-    fi
-    
-    echo ""
-    
-    # Step 12.3: Wait for benchmark rollout
-    echo "Step 12.3: Waiting for benchmark deployment rollout..."
-    kubectl rollout status deployment/$TOOL_NAME -n $NAMESPACE --timeout=120s
-    echo "✓ Benchmark rollout complete"
-    echo ""
-fi
+# Set memory limit to 3GB
+kubectl set resources deployment/$TOOL_NAME -n $NAMESPACE \
+    --limits=memory=3Gi 2>/dev/null && echo "✓ Benchmark memory limit set to 3Gi" || echo "Warning: Could not set memory limit"
+
+echo ""
+
+# Step 12.3: Wait for any configuration changes to roll out
+echo "Step 12.3: Waiting for deployment to stabilize..."
+kubectl rollout status deployment/$TOOL_NAME -n $NAMESPACE --timeout=120s
+echo "✓ Deployment stable"
+echo ""
 
 echo ""
 echo "=========================================="
