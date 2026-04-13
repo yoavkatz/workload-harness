@@ -77,7 +77,7 @@ class A2AConfig:
             timeout_seconds=_get_int("A2A_TIMEOUT_SECONDS", 300) or 300,
             auth_token=os.getenv("A2A_AUTH_TOKEN"),
             verify_tls=_get_bool("A2A_VERIFY_TLS", True),
-            endpoint_path=os.getenv("A2A_ENDPOINT_PATH", "/v1/chat"),
+            endpoint_path=os.getenv("A2A_ENDPOINT_PATH", "/"),
         )
 
 

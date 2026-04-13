@@ -41,6 +41,9 @@ class SessionResult:
         success: bool,
         latency_seconds: float,
         evaluation_result: bool,
+        creation_time_seconds: float = 0.0,
+        agent_processing_seconds: float = 0.0,
+        evaluation_time_seconds: float = 0.0,
         error: Optional[str] = None,
         response_chars: Optional[int] = None,
     ):
@@ -48,6 +51,9 @@ class SessionResult:
         self.success = success
         self.latency_seconds = latency_seconds
         self.evaluation_result = evaluation_result
+        self.creation_time_seconds = creation_time_seconds
+        self.agent_processing_seconds = agent_processing_seconds
+        self.evaluation_time_seconds = evaluation_time_seconds
         self.error = error
         self.response_chars = response_chars
 
@@ -86,15 +92,27 @@ class RunSummary:
         p95_idx = min(int(len(sorted_latencies) * 0.95), len(sorted_latencies) - 1)
         p95 = sorted_latencies[p95_idx] if sorted_latencies else 0
 
+        # Calculate separate timing metrics for all sessions
+        creation_times = [r.creation_time_seconds for r in self.results]
+        agent_times = [r.agent_processing_seconds for r in self.results]
+        eval_times = [r.evaluation_time_seconds for r in self.results]
+        
+        avg_creation = sum(creation_times) / len(creation_times) if creation_times else 0
+        avg_agent = sum(agent_times) / len(agent_times) if agent_times else 0
+        avg_eval = sum(eval_times) / len(eval_times) if eval_times else 0
+
         return {
             "sessions_attempted": attempted,
             "sessions_succeeded": succeeded,
-            "sessions_failed": failed,
+            "sessions_with_error": failed,
             "evaluation_success_rate": eval_success_rate,
             "total_wall_time_seconds": total_time,
             "average_latency_seconds": avg_latency,
             "p50_latency_seconds": p50,
             "p95_latency_seconds": p95,
+            "average_creation_time_seconds": avg_creation,
+            "average_agent_processing_seconds": avg_agent,
+            "average_evaluation_time_seconds": avg_eval,
         }
 
     def print_summary(self, max_parallel_sessions: int = 1) -> None:
@@ -111,12 +129,19 @@ class RunSummary:
         print(f"Max Parallel Sessions: {max_parallel_sessions}")
         print(f"Sessions Attempted:   {summary['sessions_attempted']}")
         print(f"Sessions Succeeded:   {summary['sessions_succeeded']}")
-        print(f"Sessions Failed:      {summary['sessions_failed']}")
+        print(f"Sessions With Error:  {summary['sessions_with_error']}")
         print(f"Evaluation Success:   {summary['evaluation_success_rate']:.1f}%")
         print(f"Total Wall Time:      {summary['total_wall_time_seconds']:.2f}s")
-        print(f"Average Latency:      {summary['average_latency_seconds']:.2f}s")
-        print(f"P50 Latency:          {summary['p50_latency_seconds']:.2f}s")
-        print(f"P95 Latency:          {summary['p95_latency_seconds']:.2f}s")
+        print()
+        print("TIMING BREAKDOWN")
+        print(f"  Session Creation:   {summary['average_creation_time_seconds']:.2f}s")
+        print(f"  Agent Processing:   {summary['average_agent_processing_seconds']:.2f}s")
+        print(f"  Evaluation:         {summary['average_evaluation_time_seconds']:.2f}s")
+        print()
+        print("AGENT PROCESSING LATENCY")
+        print(f"  Average:            {summary['average_latency_seconds']:.2f}s")
+        print(f"  P50:                {summary['p50_latency_seconds']:.2f}s")
+        print(f"  P95:                {summary['p95_latency_seconds']:.2f}s")
         print("=" * 60)
         
         # Print error table if there are any failures
@@ -159,27 +184,49 @@ class Runner:
         self.exgentic.initialize()
         logger.info("Runner initialization complete")
 
-    def process_session(self, session_data: SessionData) -> SessionResult:
-        """Process a single session.
+    def process_task(self, task_id: str) -> SessionResult:
+        """Process a single task by creating a session on-demand.
 
-        Follows the execution model from GitHub issue #963:
-        1. Create session (already done)
+        Follows the execution model:
+        1. Create session (on-demand by worker)
         2. Build prompt with session_id
         3. Send to agent via A2A
         4. Evaluate session
         5. Close session
-        6. Record statistics
+        6. Record statistics with separate timings
 
         Args:
-            session_data: Session data from Exgentic
+            task_id: Task ID to process
 
         Returns:
-            SessionResult with execution details
+            SessionResult with execution details and separate timings
         """
-        session_id = session_data.session_id
         start_time = time.time()
+        session_id = None
 
-        logger.info(f"Processing session: {session_id}")
+        logger.info(f"Processing task: {task_id}")
+
+        # Create session on-demand
+        creation_start = time.time()
+        try:
+            session_data = self.exgentic.create_session(task_id=task_id)
+            session_id = session_data.session_id
+            creation_time = time.time() - creation_start
+            logger.info(f"Created session {session_id} for task {task_id} in {creation_time:.2f}s")
+        except Exception as e:
+            creation_time = time.time() - creation_start
+            error_msg = f"Failed to create session: {type(e).__name__}: {str(e)}"
+            logger.error(error_msg)
+            return SessionResult(
+                session_id=f"failed-{task_id}",
+                success=False,
+                latency_seconds=0.0,  # No agent processing time on creation failure
+                evaluation_result=False,
+                creation_time_seconds=creation_time,
+                agent_processing_seconds=0.0,
+                evaluation_time_seconds=0.0,
+                error=error_msg,
+            )
 
         # Start OTEL span
         with self.otel.session_span(
@@ -201,19 +248,19 @@ class Runner:
                 if self.config.debug.log_prompt:
                     logger.debug(f"Prompt length: {len(prompt)} chars")
 
-                # Send A2A request
-                a2a_start = time.time()
+                # Send A2A request (agent processing time)
+                agent_start = time.time()
                 with self.otel.child_span("exgentic_a2a.a2a.send_prompt") as a2a_span:
                     response = self.a2a_client.send_prompt(prompt)
-                    a2a_duration_seconds = time.time() - a2a_start
+                    agent_processing_time = time.time() - agent_start
                     # Record prompt and response on the send span
                     a2a_span.set_attribute("prompt.chars", len(prompt))
                     a2a_span.set_attribute("prompt.text", prompt)
                     self.otel.record_response(a2a_span, response)
-                    self.otel.record_a2a_request(a2a_span, a2a_duration_seconds)
+                    self.otel.record_a2a_request(a2a_span, agent_processing_time)
 
                 # Also record on parent span for backward compatibility
-                self.otel.record_a2a_request(span, a2a_duration_seconds)
+                self.otel.record_a2a_request(span, agent_processing_time)
                 self.otel.record_response(span, response)
 
                 if self.config.debug.log_response:
@@ -223,15 +270,15 @@ class Runner:
                 eval_start = time.time()
                 with self.otel.child_span("exgentic_a2a.mcp.evaluate_session") as eval_span:
                     evaluation_result = self.exgentic.evaluate_session(session_id)
-                    eval_duration_seconds = time.time() - eval_start
+                    evaluation_time = time.time() - eval_start
                     # Record evaluation result on the evaluate span
                     eval_span.set_attribute("exgentic.evaluation_result", evaluation_result)
-                    eval_span.set_attribute("exgentic.evaluation_duration_seconds", eval_duration_seconds)
+                    eval_span.set_attribute("exgentic.evaluation_duration_seconds", evaluation_time)
                     if self.otel.evaluation_latency_histogram:
-                        self.otel.evaluation_latency_histogram.record(eval_duration_seconds)
+                        self.otel.evaluation_latency_histogram.record(evaluation_time)
                 
                 # Also record on parent span for backward compatibility
-                self.otel.record_evaluation(span, eval_duration_seconds)
+                self.otel.record_evaluation(span, evaluation_time)
 
                 # Delete session
                 with self.otel.child_span("exgentic_a2a.mcp.delete_session"):
@@ -240,17 +287,21 @@ class Runner:
                 # Record success
                 self.otel.record_success(span, evaluation_result)
 
-                latency_seconds = time.time() - start_time
+                total_time = time.time() - start_time
                 logger.info(
-                    f"Session {session_id} completed in {latency_seconds:.2f}s "
+                    f"Session {session_id} completed in {total_time:.2f}s "
+                    f"(creation: {creation_time:.2f}s, agent: {agent_processing_time:.2f}s, eval: {evaluation_time:.2f}s) "
                     f"(evaluation: {'success' if evaluation_result else 'failed'})"
                 )
 
                 return SessionResult(
                     session_id=session_id,
                     success=True,
-                    latency_seconds=latency_seconds,
+                    latency_seconds=agent_processing_time,  # Latency is now only agent processing time
                     evaluation_result=evaluation_result,
+                    creation_time_seconds=creation_time,
+                    agent_processing_seconds=agent_processing_time,
+                    evaluation_time_seconds=evaluation_time,
                     response_chars=len(response),
                 )
 
@@ -271,13 +322,14 @@ class Runner:
                 # Record failure
                 self.otel.record_failure(span, e, error_type)
 
-                latency_seconds = time.time() - start_time
-
                 return SessionResult(
                     session_id=session_id,
                     success=False,
-                    latency_seconds=latency_seconds,
+                    latency_seconds=0.0,  # No agent processing time on failure
                     evaluation_result=False,
+                    creation_time_seconds=creation_time,
+                    agent_processing_seconds=0.0,
+                    evaluation_time_seconds=0.0,
                     error=f"{error_type}: {error_msg}",
                 )
 
@@ -297,42 +349,53 @@ class Runner:
 
             max_workers = self.config.exgentic.max_parallel_sessions
             
+            # Limit task_ids if max_tasks is set
+            max_tasks = self.config.exgentic.max_tasks
+            if max_tasks is not None:
+                task_ids = task_ids[:max_tasks]
+                logger.info(f"Processing {len(task_ids)} tasks (limited by max_tasks={max_tasks})")
+            else:
+                logger.info(f"Processing all {len(task_ids)} tasks")
+            
             # Always use ThreadPoolExecutor (works for both sequential and parallel)
-            logger.info(f"Processing sessions with {max_workers} worker(s)")
+            logger.info(f"Processing tasks with {max_workers} worker(s)")
+            logger.info("Sessions will be created on-demand by workers")
             
-            # Collect all session data first
-            sessions = list(self.exgentic.iterate_sessions(task_ids))
-            
-            # Process sessions using ThreadPoolExecutor
+            # Process tasks using ThreadPoolExecutor - sessions created on-demand
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all sessions
-                future_to_session = {
-                    executor.submit(self.process_session, session_data): session_data
-                    for session_data in sessions
+                # Submit all tasks (not pre-created sessions)
+                future_to_task = {
+                    executor.submit(self.process_task, task_id): task_id
+                    for task_id in task_ids
                 }
                 
                 # Process results as they complete
-                for future in as_completed(future_to_session):
-                    session_data = future_to_session[future]
+                for future in as_completed(future_to_task):
+                    task_id = future_to_task[future]
                     try:
                         result = future.result()
                         self.summary.add_result(result)
                         
+                        self.summary.print_summary(max_parallel_sessions=self.max_parallel_sessions)
+                        
                         # Check abort on failure
                         if not result.success and self.config.exgentic.abort_on_failure:
-                            logger.error("Aborting due to session failure (ABORT_ON_FAILURE=true)")
+                            logger.error("Aborting due to task failure (ABORT_ON_FAILURE=true)")
                             # Cancel remaining futures
-                            for f in future_to_session:
+                            for f in future_to_task:
                                 f.cancel()
                             break
                     except Exception as e:
-                        logger.error(f"Session {session_data.session_id} raised exception: {e}")
+                        logger.error(f"Task {task_id} raised exception: {e}")
                         # Create a failure result
                         result = SessionResult(
-                            session_id=session_data.session_id,
+                            session_id=f"failed-{task_id}",
                             success=False,
                             latency_seconds=0,
                             evaluation_result=False,
+                            creation_time_seconds=0.0,
+                            agent_processing_seconds=0.0,
+                            evaluation_time_seconds=0.0,
                             error=str(e),
                         )
                         self.summary.add_result(result)

@@ -183,7 +183,7 @@ Then edit the .env file as needed.
 | `A2A_TIMEOUT_SECONDS` | `300` | Timeout for A2A requests. |
 | `A2A_AUTH_TOKEN` | `(none)` | Bearer token for A2A authentication. |
 | `A2A_VERIFY_TLS` | `true` | Verify TLS certificates for HTTPS. |
-| `A2A_ENDPOINT_PATH` | `/v1/chat` | Endpoint path for A2A requests. |
+| `A2A_ENDPOINT_PATH` | `/` | Endpoint path for A2A requests. |
 
 ## Usage
 
