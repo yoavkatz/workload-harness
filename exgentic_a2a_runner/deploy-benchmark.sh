@@ -492,6 +492,83 @@ echo "✓ Deployment stable"
 echo ""
 
 echo ""
+
+# Step 13: Health check MCP server
+echo "Step 13: Performing MCP server health check..."
+echo ""
+
+MCP_HEALTH_PORT=8009
+MCP_API="http://localhost:$MCP_HEALTH_PORT"
+
+# Check if port is already in use
+if lsof -Pi :$MCP_HEALTH_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "Error: Port $MCP_HEALTH_PORT is already in use"
+    echo "Please free up the port and try again"
+    exit 1
+fi
+
+echo "Starting port-forward to MCP server on port $MCP_HEALTH_PORT..."
+kubectl port-forward -n $NAMESPACE svc/$TOOL_NAME $MCP_HEALTH_PORT:8000 >/dev/null 2>&1 &
+MCP_PF_PID=$!
+
+# Wait for port-forward to be ready
+echo "Waiting for MCP server port-forward to be ready..."
+HEALTH_CHECK_READY=false
+for i in {1..20}; do
+    # Try both /health and root endpoint
+    if curl -s -f "$MCP_API/health" >/dev/null 2>&1 || curl -s -f "$MCP_API/" >/dev/null 2>&1; then
+        echo "✓ MCP server port-forward is ready"
+        HEALTH_CHECK_READY=true
+        break
+    fi
+    sleep 1
+done
+
+if [ "$HEALTH_CHECK_READY" = false ]; then
+    echo "Error: MCP server port-forward did not become ready after 20 seconds"
+    echo "The server may not be running or may have failed to start"
+    kill $MCP_PF_PID 2>/dev/null || true
+    exit 1
+fi
+
+# Try /health endpoint first
+echo "Calling MCP server /health endpoint..."
+HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" "$MCP_API/health" 2>/dev/null || echo -e "\nERROR")
+
+HTTP_CODE=$(echo "$HEALTH_RESPONSE" | tail -n 1)
+HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" = "200" ]; then
+    echo "✓ MCP server health check passed (HTTP 200)"
+    if [ -n "$HEALTH_BODY" ]; then
+        echo "Response: $HEALTH_BODY"
+    fi
+elif [ "$HTTP_CODE" = "404" ]; then
+    # /health endpoint not found, try root endpoint
+    echo "/health endpoint not found (404), trying root endpoint..."
+    ROOT_RESPONSE=$(curl -s -w "\n%{http_code}" "$MCP_API/" 2>/dev/null || echo -e "\nERROR")
+    ROOT_CODE=$(echo "$ROOT_RESPONSE" | tail -n 1)
+    
+    if [ "$ROOT_CODE" = "200" ]; then
+        echo "✓ MCP server is responding (HTTP 200 on root endpoint)"
+    else
+        echo "⚠ Warning: MCP server returned HTTP $ROOT_CODE on root endpoint"
+    fi
+elif [ "$HTTP_CODE" = "ERROR" ]; then
+    echo "⚠ Warning: Could not connect to MCP server"
+else
+    echo "⚠ Warning: MCP server health check returned HTTP $HTTP_CODE"
+    if [ -n "$HEALTH_BODY" ]; then
+        echo "Response: $HEALTH_BODY"
+    fi
+fi
+
+# Clean up port-forward
+echo "Cleaning up MCP server port-forward..."
+kill $MCP_PF_PID 2>/dev/null || true
+sleep 1
+
+echo ""
 echo "=========================================="
 echo "Deployment and Configuration Complete!"
 echo "=========================================="
