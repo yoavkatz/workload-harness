@@ -355,6 +355,10 @@ if [ -n "$MODEL_NAME" ]; then
     ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS_WITH_CONFIG" | jq ". + [{\"name\": \"LLM_MODEL\", \"value\": \"$MODEL_NAME\"}, {\"name\": \"EXGENTIC_SET_AGENT_MODEL\", \"value\": \"$MODEL_NAME\"}]")
 fi
 
+# Add EXGENTIC_OTEL_ENABLED and OTEL_EXPORTER_OTLP_PROTOCOL to environment variables
+echo "Adding EXGENTIC_OTEL_ENABLED and OTEL_EXPORTER_OTLP_PROTOCOL to environment variables"
+ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS_WITH_CONFIG" | jq ". + [{\"name\": \"EXGENTIC_OTEL_ENABLED\", \"value\": \"true\"}, {\"name\": \"OTEL_EXPORTER_OTLP_PROTOCOL\", \"value\": \"http/protobuf\"}]")
+
 echo "✓ Environment variables prepared for deployment"
 echo ""
 
