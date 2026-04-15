@@ -133,7 +133,7 @@ class RunSummary:
         print(f"Evaluation Success:   {summary['evaluation_success_rate']:.1f}%")
         print(f"Total Wall Time:      {summary['total_wall_time_seconds']:.2f}s")
         print()
-        print("TIMING BREAKDOWN")
+        print("TIMING BREAKDOWN (average per session)")
         print(f"  Session Creation:   {summary['average_creation_time_seconds']:.2f}s")
         print(f"  Agent Processing:   {summary['average_agent_processing_seconds']:.2f}s")
         print(f"  Evaluation:         {summary['average_evaluation_time_seconds']:.2f}s")
