@@ -295,6 +295,64 @@ sleep 3
 
 echo ""
 
+# Step 7.1: Update secrets before deployment
+echo "Step 7.1: Updating secrets before deployment..."
+echo ""
+
+# Step 7.1.1: Update the openai-secret with current OPENAI_API_KEY
+echo "Step 7.1.1: Updating openai-secret with OPENAI_API_KEY..."
+
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo "Warning: OPENAI_API_KEY environment variable is not set"
+    echo "Skipping secret update"
+else
+    # Encode the API key in base64
+    ENCODED_KEY=$(echo -n "$OPENAI_API_KEY" | base64)
+    
+    # Patch the secret
+    kubectl patch secret openai-secret -n $NAMESPACE --type='json' -p="[
+      {
+        \"op\": \"replace\",
+        \"path\": \"/data/apikey\",
+        \"value\": \"$ENCODED_KEY\"
+      }
+    ]" 2>/dev/null && echo "✓ OPENAI_API_KEY secret updated" || echo "Warning: Could not update OPENAI_API_KEY secret"
+fi
+
+echo ""
+
+# Step 7.1.2: Update the hf-secret with current HF_TOKEN
+echo "Step 7.1.2: Updating hf-secret with HF_TOKEN..."
+
+# Use HF_TOKEN from environment or set a dummy token if not defined
+if [ -z "$HF_TOKEN" ]; then
+    echo "Warning: HF_TOKEN environment variable is not set, using dummy token"
+    HF_TOKEN_VALUE="dummy-hf-token-not-set"
+else
+    HF_TOKEN_VALUE="$HF_TOKEN"
+fi
+
+# Encode the HF token in base64
+ENCODED_HF_TOKEN=$(echo -n "$HF_TOKEN_VALUE" | base64)
+
+# Check if hf-secret exists, create or patch accordingly
+if kubectl get secret hf-secret -n $NAMESPACE >/dev/null 2>&1; then
+    # Patch existing secret
+    kubectl patch secret hf-secret -n $NAMESPACE --type='json' -p="[
+      {
+        \"op\": \"replace\",
+        \"path\": \"/data/hf-token\",
+        \"value\": \"$ENCODED_HF_TOKEN\"
+      }
+    ]" 2>/dev/null && echo "✓ HF_TOKEN secret updated" || echo "Warning: Could not update HF_TOKEN secret"
+else
+    # Create new secret
+    kubectl create secret generic hf-secret -n $NAMESPACE \
+        --from-literal=hf-token="$HF_TOKEN_VALUE" 2>/dev/null && echo "✓ HF_TOKEN secret created" || echo "Warning: Could not create HF_TOKEN secret"
+fi
+
+echo ""
+
 # Step 8: Fetch and parse benchmark environment variables
 echo "Step 8: Fetching and preparing benchmark environment variables..."
 ENV_CONTENT=$(curl -s "https://raw.githubusercontent.com/yoavkatz/agent-examples/refs/heads/feature/exgentic-mcp-server/mcp/exgentic_benchmarks/.env.${BENCHMARK_NAME}")
@@ -330,6 +388,12 @@ if [[ "$BENCHMARK_NAME" == tau* ]] && [ -n "$MODEL_NAME" ]; then
     echo "Adding EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL for tau benchmark"
     ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"EXGENTIC_SET_BENCHMARK_USER_SIMULATOR_MODEL\", \"value\": \"$MODEL_NAME\"}]")
 fi
+
+# Set EXGENTIC_SET_BENCHMARK_RUNNER based on benchmark type
+#if [[ "$BENCHMARK_NAME" == "gsm8k" ]]; then
+#    echo "Adding EXGENTIC_SET_BENCHMARK_RUNNER=process for gsm8k benchmark"
+#   ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"EXGENTIC_SET_BENCHMARK_RUNNER\", \"value\": \"process\"}]")
+#fi
 
 echo "✓ Environment variables prepared for deployment"
 echo ""
@@ -454,30 +518,8 @@ echo "Final Configuration"
 echo "=========================================="
 echo ""
 
-# Step 12.1: Update the openai-secret with current OPENAI_API_KEY
-echo "Step 12.1: Updating openai-secret with OPENAI_API_KEY..."
-
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "Warning: OPENAI_API_KEY environment variable is not set"
-    echo "Skipping secret update"
-else
-    # Encode the API key in base64
-    ENCODED_KEY=$(echo -n "$OPENAI_API_KEY" | base64)
-    
-    # Patch the secret
-    kubectl patch secret openai-secret -n $NAMESPACE --type='json' -p="[
-      {
-        \"op\": \"replace\",
-        \"path\": \"/data/apikey\",
-        \"value\": \"$ENCODED_KEY\"
-      }
-    ]" 2>/dev/null && echo "✓ Secret updated" || echo "Warning: Could not update secret"
-fi
-
-echo ""
-
-# Step 12.2: Set memory limit
-echo "Step 12.2: Setting memory limit..."
+# Step 12.1: Set memory limit
+echo "Step 12.1: Setting memory limit..."
 
 # Set memory limit to 3GB
 kubectl set resources deployment/$TOOL_NAME -n $NAMESPACE \
@@ -485,8 +527,8 @@ kubectl set resources deployment/$TOOL_NAME -n $NAMESPACE \
 
 echo ""
 
-# Step 12.3: Wait for any configuration changes to roll out
-echo "Step 12.3: Waiting for deployment to stabilize..."
+# Step 12.2: Wait for any configuration changes to roll out
+echo "Step 12.2: Waiting for deployment to stabilize..."
 kubectl rollout status deployment/$TOOL_NAME -n $NAMESPACE --timeout=120s
 echo "✓ Deployment stable"
 echo ""
@@ -576,6 +618,9 @@ if [ -n "$OPENAI_API_BASE" ]; then
     fi
     if [ -n "$OPENAI_API_KEY" ]; then
         echo "  OPENAI_API_KEY: (updated from env var)"
+    fi
+    if [ -n "$HF_TOKEN" ]; then
+        echo "  HF_TOKEN: (updated from env var)"
     fi
 fi
 echo ""

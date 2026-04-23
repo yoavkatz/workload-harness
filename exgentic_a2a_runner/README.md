@@ -123,15 +123,23 @@ source .venv/bin/activate
 
 **`deploy-benchmark.sh`** will:
 1. Deploy the MCP server to the Kagenti cluster
-2. Automatically configure environment variables (OPENAI_API_BASE, OPENAI_API_KEY)
-3. Set memory limits and model settings
-4. Wait for the deployment to be ready
+2. Automatically configure secrets before deployment:
+   - Updates `openai-secret` with OPENAI_API_KEY (if set in environment)
+   - Creates/updates `hf-secret` with HF_TOKEN (uses dummy token if not set)
+3. Configure environment variables (OPENAI_API_BASE, EXGENTIC_SET_BENCHMARK_RUNNER for gsm8k)
+4. Set memory limits and model settings
+5. Wait for the deployment to be ready
 
 **`deploy-agent.sh`** will:
 1. Deploy the agent to the Kagenti cluster
 2. Automatically configure environment variables (OPENAI_API_BASE, OPENAI_API_KEY, LLM_MODEL)
 3. Set model settings (LLM_MODEL, EXGENTIC_SET_AGENT_MODEL)
 4. Wait for the deployment to be ready
+
+**Environment Variables for Deployment:**
+- `OPENAI_API_KEY`: OpenAI API key (optional, updates openai-secret if set)
+- `HF_TOKEN`: HuggingFace token (optional, creates hf-secret with dummy token if not set)
+- `OPENAI_API_BASE`: OpenAI API base URL (optional, added to deployment env vars)
 
 For appworld benchmark, use gemini-2.5-pro or other models, because OpenAI models cannot handle the number of tools in appworld without special tool shortlisting.
 
