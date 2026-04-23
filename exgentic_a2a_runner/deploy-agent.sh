@@ -598,12 +598,13 @@ fi
 
 echo ""
 
-# Step 11.2: Set memory limit
-echo "Step 11.2: Setting memory limit..."
+# Step 11.2: Set resource limits
+echo "Step 11.2: Setting resource limits..."
 
-# Set memory limit to 3GB
+# Set CPU limit to 4 cores and memory limit to 3GB
 kubectl set resources deployment/$AGENT_NAME -n $NAMESPACE \
-    --limits=memory=3Gi 2>/dev/null && echo "✓ Agent memory limit set to 3Gi" || echo "Warning: Could not set memory limit"
+    --limits=cpu=4,memory=3Gi \
+    --requests=cpu=500m,memory=512Mi 2>/dev/null && echo "✓ Agent resource limits set (CPU: 4 cores, Memory: 3Gi)" || echo "Warning: Could not set resource limits"
 
 echo ""
 
@@ -684,6 +685,7 @@ echo "  Namespace: $NAMESPACE"
 echo "  Service: $AGENT_NAME.$NAMESPACE:8080"
 echo "  Tool: $TOOL_NAME.$NAMESPACE:8000"
 echo "  Model: $MODEL_NAME"
+echo "  CPU Limit: 4 cores"
 echo "  Memory Limit: 3Gi"
 if [ -n "$OPENAI_API_BASE" ]; then
     echo "  LLM_API_BASE: $OPENAI_API_BASE"

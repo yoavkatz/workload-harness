@@ -561,12 +561,13 @@ echo "Final Configuration"
 echo "=========================================="
 echo ""
 
-# Step 12.1: Set memory limit
-echo "Step 12.1: Setting memory limit..."
+# Step 12.1: Set resource limits
+echo "Step 12.1: Setting resource limits..."
 
-# Set memory limit to 3GB
+# Set CPU limit to 4 cores and memory limit to 3GB
 kubectl set resources deployment/$TOOL_NAME -n $NAMESPACE \
-    --limits=memory=3Gi 2>/dev/null && echo "✓ Benchmark memory limit set to 3Gi" || echo "Warning: Could not set memory limit"
+    --limits=cpu=4,memory=3Gi \
+    --requests=cpu=500m,memory=512Mi 2>/dev/null && echo "✓ Benchmark resource limits set (CPU: 4 cores, Memory: 3Gi)" || echo "Warning: Could not set resource limits"
 
 echo ""
 
