@@ -9,12 +9,18 @@ set -e
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Default values
+# Load environment variables if .env exists
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    source "$SCRIPT_DIR/.env"
+fi
+
+# Default values (env vars from .env take precedence, CLI args override both)
 BENCHMARK_NAME=""
 AGENT_NAME=""
 MODEL_NAME="Azure/gpt-4.1"
 KEYCLOAK_USERNAME="admin"
 KEYCLOAK_PASSWORD="admin"
+USE_MCP_GATEWAY="${USE_MCP_GATEWAY:-false}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -39,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             KEYCLOAK_PASSWORD="$2"
             shift 2
             ;;
+        --use-mcp-gateway)
+            USE_MCP_GATEWAY="true"
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 --benchmark <name> --agent <name> [OPTIONS]"
             echo ""
@@ -50,17 +60,22 @@ while [[ $# -gt 0 ]]; do
             echo "  --model MODEL              Model name (default: Azure/gpt-4.1)"
             echo "  --keycloak-user USER       Keycloak username (default: admin)"
             echo "  --keycloak-pass PASS       Keycloak password (default: admin)"
+            echo "  --use-mcp-gateway          Route MCP traffic through the MCP Gateway"
             echo "  -h, --help                 Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0 --benchmark tau2 --agent tool_calling"
             echo "  $0 --benchmark tau2 --agent tool_calling --model Azure/gpt-4o-mini"
             echo "  $0 --benchmark gsm8k --agent generic_agent --model Azure/gpt-4o"
+            echo "  $0 --benchmark tau2 --agent tool_calling --use-mcp-gateway"
             echo ""
             echo "This script will:"
             echo "  1. Deploy the benchmark using deploy-benchmark.sh"
             echo "  2. Deploy the agent using deploy-agent.sh"
             echo "  3. Run evaluation using evaluate_benchmark.sh"
+            echo ""
+            echo "Environment Variables:"
+            echo "  USE_MCP_GATEWAY=true       Same as --use-mcp-gateway (set in .env)"
             exit 0
             ;;
         -*)
@@ -96,7 +111,14 @@ echo "Benchmark: $BENCHMARK_NAME"
 echo "Agent: $AGENT_NAME"
 echo "Model: $MODEL_NAME"
 echo "Keycloak User: $KEYCLOAK_USERNAME"
+echo "MCP Gateway: $USE_MCP_GATEWAY"
 echo ""
+
+# Build gateway flag for sub-scripts
+MCP_GATEWAY_FLAG=""
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    MCP_GATEWAY_FLAG="--use-mcp-gateway"
+fi
 
 # Step 1: Deploy benchmark
 echo "=========================================="
@@ -105,7 +127,8 @@ echo "=========================================="
 "$SCRIPT_DIR/deploy-benchmark.sh" --benchmark "$BENCHMARK_NAME" \
     --model "$MODEL_NAME" \
     --keycloak-user "$KEYCLOAK_USERNAME" \
-    --keycloak-pass "$KEYCLOAK_PASSWORD"
+    --keycloak-pass "$KEYCLOAK_PASSWORD" \
+    $MCP_GATEWAY_FLAG
 
 if [ $? -ne 0 ]; then
     echo "Error: Benchmark deployment failed"
@@ -123,7 +146,8 @@ echo "=========================================="
 "$SCRIPT_DIR/deploy-agent.sh" --benchmark "$BENCHMARK_NAME" --agent "$AGENT_NAME" \
     --model "$MODEL_NAME" \
     --keycloak-user "$KEYCLOAK_USERNAME" \
-    --keycloak-pass "$KEYCLOAK_PASSWORD"
+    --keycloak-pass "$KEYCLOAK_PASSWORD" \
+    $MCP_GATEWAY_FLAG
 
 if [ $? -ne 0 ]; then
     echo "Error: Agent deployment failed"

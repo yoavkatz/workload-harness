@@ -72,12 +72,22 @@ AGENT_SERVICE="${AGENT_SERVICE//_/-}"
 # Set benchmark service name (override .env values)
 export BENCHMARK_SERVICE="exgentic-mcp-${BENCHMARK_NAME}-mcp"
 
+# MCP Gateway configuration
+USE_MCP_GATEWAY="${USE_MCP_GATEWAY:-false}"
+MCP_GATEWAY_SERVICE="mcp-gateway-istio"
+MCP_GATEWAY_NAMESPACE="gateway-system"
+MCP_GATEWAY_PORT=8080
+
 echo "=========================================="
 echo "Exgentic A2A Runner - Benchmark Evaluation"
 echo "=========================================="
 echo "Benchmark: $BENCHMARK_NAME"
 echo "Agent Service: $AGENT_SERVICE"
-echo "Benchmark Service: $BENCHMARK_SERVICE"
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    echo "MCP via Gateway: $MCP_GATEWAY_SERVICE.$MCP_GATEWAY_NAMESPACE:$MCP_GATEWAY_PORT"
+else
+    echo "Benchmark Service: $BENCHMARK_SERVICE"
+fi
 echo ""
 
 # Check if kubectl is available
@@ -101,7 +111,11 @@ fi
 
 echo ""
 echo "Setting up port forwarding..."
-echo "  - MCP Server: localhost:7770 -> $BENCHMARK_SERVICE.team1:8000"
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    echo "  - MCP Gateway: localhost:7770 -> $MCP_GATEWAY_SERVICE.$MCP_GATEWAY_NAMESPACE:$MCP_GATEWAY_PORT"
+else
+    echo "  - MCP Server: localhost:7770 -> $BENCHMARK_SERVICE.team1:8000"
+fi
 echo "  - A2A Agent:  localhost:7701 -> $AGENT_SERVICE.team1:8080"
 echo ""
 
@@ -120,12 +134,22 @@ echo "Checking if pods are ready..."
 BENCHMARK_DEPLOYMENT="${BENCHMARK_SERVICE%-mcp}"
 AGENT_DEPLOYMENT="$AGENT_SERVICE"
 
-# Wait for MCP server pod to be ready
-echo "  Checking MCP server pod..."
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=$BENCHMARK_DEPLOYMENT -n team1 --timeout=60s
-if [ $? -ne 0 ]; then
-    echo "Error: MCP server pod is not ready"
-    exit 1
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    # Check gateway pods
+    echo "  Checking MCP Gateway pods..."
+    kubectl wait --for=condition=ready pod -l app=$MCP_GATEWAY_SERVICE -n $MCP_GATEWAY_NAMESPACE --timeout=60s
+    if [ $? -ne 0 ]; then
+        echo "Error: MCP Gateway pod is not ready"
+        exit 1
+    fi
+else
+    # Wait for MCP server pod to be ready
+    echo "  Checking MCP server pod..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=$BENCHMARK_DEPLOYMENT -n team1 --timeout=60s
+    if [ $? -ne 0 ]; then
+        echo "Error: MCP server pod is not ready"
+        exit 1
+    fi
 fi
 
 # Wait for agent pod to be ready
@@ -144,8 +168,13 @@ echo "Waiting for services to be fully started..."
 sleep 10
 
 # Start port forwarding in background (suppress "Handling connection" messages)
-echo "Starting port-forward for MCP server..."
-kubectl port-forward -n team1 svc/$BENCHMARK_SERVICE 7770:8000 >/dev/null 2>&1 &
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    echo "Starting port-forward for MCP Gateway..."
+    kubectl port-forward -n $MCP_GATEWAY_NAMESPACE svc/$MCP_GATEWAY_SERVICE 7770:$MCP_GATEWAY_PORT >/dev/null 2>&1 &
+else
+    echo "Starting port-forward for MCP server..."
+    kubectl port-forward -n team1 svc/$BENCHMARK_SERVICE 7770:8000 >/dev/null 2>&1 &
+fi
 PF_MCP_PID=$!
 
 echo "Starting port-forward for A2A agent..."
