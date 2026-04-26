@@ -1,12 +1,18 @@
 #!/bin/bash
 # Evaluate a specific Exgentic benchmark
-# Usage: ./evaluate_benchmark.sh --benchmark <name> --agent <name>
-# Example: ./evaluate_benchmark.sh --benchmark tau2 --agent tool_calling
+# Usage: ./evaluate-benchmark.sh --benchmark <name> --agent <name> [--phoenix-otel]
+# Example: ./evaluate-benchmark.sh --benchmark tau2 --agent tool_calling
 
 set -e
 
+KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
+
 BENCHMARK_NAME=""
 AGENT_NAME_INPUT=""
+PHOENIX_OTEL_ENABLED="false"
+PHOENIX_NAMESPACE="kagenti-system"
+PHOENIX_SERVICE="phoenix"
+PHOENIX_OTLP_LOCAL_PORT="4317"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -19,19 +25,25 @@ while [[ $# -gt 0 ]]; do
             AGENT_NAME_INPUT="$2"
             shift 2
             ;;
+        --phoenix-otel)
+            PHOENIX_OTEL_ENABLED="true"
+            shift
+            ;;
         -h|--help)
-            echo "Usage: $0 --benchmark <name> --agent <name>"
+            echo "Usage: $0 --benchmark <name> --agent <name> [--phoenix-otel]"
             echo ""
             echo "Required Arguments:"
             echo "  --benchmark NAME           Benchmark name (e.g., gsm8k, tau2)"
             echo "  --agent NAME               Agent name (e.g., tool_calling, generic_agent)"
             echo ""
             echo "Options:"
+            echo "  --phoenix-otel             Port-forward Phoenix OTLP and export runner telemetry to it"
             echo "  -h, --help                 Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0 --benchmark tau2 --agent tool_calling"
             echo "  $0 --benchmark gsm8k --agent generic_agent"
+            echo "  $0 --benchmark gsm8k --agent tool_calling --phoenix-otel"
             exit 0
             ;;
         -*)
@@ -49,7 +61,7 @@ done
 
 if [ -z "$BENCHMARK_NAME" ] || [ -z "$AGENT_NAME_INPUT" ]; then
     echo "Error: Both --benchmark and --agent are required"
-    echo "Usage: $0 --benchmark <name> --agent <name>"
+    echo "Usage: $0 --benchmark <name> --agent <name> [--phoenix-otel]"
     echo "Use --help for more information"
     exit 1
 fi
@@ -78,17 +90,27 @@ echo "=========================================="
 echo "Benchmark: $BENCHMARK_NAME"
 echo "Agent Service: $AGENT_SERVICE"
 echo "Benchmark Service: $BENCHMARK_SERVICE"
+echo "Phoenix OTEL: ${PHOENIX_OTEL_ENABLED}"
 echo ""
 
 # Check if kubectl is available
-if ! command -v kubectl &> /dev/null; then
-    echo "Error: kubectl is not installed or not in PATH"
+if ! command -v "$KUBECTL_BIN" &> /dev/null; then
+    echo "Error: $KUBECTL_BIN is not installed or not in PATH"
     exit 1
 fi
 
-# Check if we're connected to the right cluster
-CURRENT_CONTEXT=$(kubectl config current-context)
+# Check if we're connected to a reachable cluster
+if ! CURRENT_CONTEXT=$("$KUBECTL_BIN" config current-context 2>/dev/null); then
+    echo "Error: Unable to determine current kubectl context"
+    exit 1
+fi
 echo "Current kubectl context: $CURRENT_CONTEXT"
+
+if ! "$KUBECTL_BIN" cluster-info >/dev/null 2>&1; then
+    echo "Error: kubectl context '$CURRENT_CONTEXT' is not reachable"
+    echo "Hint: refresh your cluster access or set KUBECTL_BIN to another kubectl wrapper"
+    exit 1
+fi
 
 if [ "$CURRENT_CONTEXT" != "kind-kagenti" ]; then
     echo "Warning: Not connected to kind-kagenti cluster"
@@ -103,14 +125,21 @@ echo ""
 echo "Setting up port forwarding..."
 echo "  - MCP Server: localhost:7770 -> $BENCHMARK_SERVICE.team1:8000"
 echo "  - A2A Agent:  localhost:7701 -> $AGENT_SERVICE.team1:8080"
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+    echo "  - Phoenix OTLP: localhost:${PHOENIX_OTLP_LOCAL_PORT} -> ${PHOENIX_SERVICE}.${PHOENIX_NAMESPACE}:4317"
+fi
 echo ""
 
 # Kill any existing port-forwards on these ports
-echo "Cleaning up existing port-forwards on ports 7770 and 7701..."
-# Kill any process using port 7770
-lsof -ti:7770 | xargs kill -9 2>/dev/null || true
-# Kill any process using port 7701
-lsof -ti:7701 | xargs kill -9 2>/dev/null || true
+PORTS_TO_CLEANUP="7770 7701"
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+    PORTS_TO_CLEANUP="$PORTS_TO_CLEANUP ${PHOENIX_OTLP_LOCAL_PORT}"
+fi
+
+echo "Cleaning up existing port-forwards on ports:${PORTS_TO_CLEANUP}"
+for PORT in $PORTS_TO_CLEANUP; do
+    lsof -ti:$PORT | xargs kill -9 2>/dev/null || true
+done
 sleep 2
 
 # Check if pods are ready before port-forwarding
@@ -122,7 +151,7 @@ AGENT_DEPLOYMENT="$AGENT_SERVICE"
 
 # Wait for MCP server pod to be ready
 echo "  Checking MCP server pod..."
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=$BENCHMARK_DEPLOYMENT -n team1 --timeout=60s
+"$KUBECTL_BIN" wait --for=condition=ready pod -l app.kubernetes.io/name=$BENCHMARK_DEPLOYMENT -n team1 --timeout=60s
 if [ $? -ne 0 ]; then
     echo "Error: MCP server pod is not ready"
     exit 1
@@ -130,7 +159,7 @@ fi
 
 # Wait for agent pod to be ready
 echo "  Checking agent pod..."
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=$AGENT_DEPLOYMENT -n team1 --timeout=60s
+"$KUBECTL_BIN" wait --for=condition=ready pod -l app.kubernetes.io/name=$AGENT_DEPLOYMENT -n team1 --timeout=60s
 if [ $? -ne 0 ]; then
     echo "Error: Agent pod is not ready"
     exit 1
@@ -139,18 +168,35 @@ fi
 echo "✓ All pods are ready"
 echo ""
 
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+    echo "  Checking Phoenix pod..."
+    "$KUBECTL_BIN" wait --for=condition=ready pod -l app=phoenix -n $PHOENIX_NAMESPACE --timeout=60s
+    if [ $? -ne 0 ]; then
+        echo "Error: Phoenix pod is not ready"
+        exit 1
+    fi
+    echo "✓ Phoenix pod is ready"
+    echo ""
+fi
+
 # Additional wait to ensure services are fully started
 echo "Waiting for services to be fully started..."
 sleep 10
 
 # Start port forwarding in background (suppress "Handling connection" messages)
 echo "Starting port-forward for MCP server..."
-kubectl port-forward -n team1 svc/$BENCHMARK_SERVICE 7770:8000 >/dev/null 2>&1 &
+"$KUBECTL_BIN" port-forward -n team1 svc/$BENCHMARK_SERVICE 7770:8000 >/dev/null 2>&1 &
 PF_MCP_PID=$!
 
 echo "Starting port-forward for A2A agent..."
-kubectl port-forward -n team1 svc/$AGENT_SERVICE 7701:8080 >/dev/null 2>&1 &
+"$KUBECTL_BIN" port-forward -n team1 svc/$AGENT_SERVICE 7701:8080 >/dev/null 2>&1 &
 PF_AGENT_PID=$!
+
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+    echo "Starting port-forward for Phoenix OTLP..."
+    "$KUBECTL_BIN" port-forward -n $PHOENIX_NAMESPACE svc/$PHOENIX_SERVICE ${PHOENIX_OTLP_LOCAL_PORT}:4317 >/dev/null 2>&1 &
+    PF_PHOENIX_PID=$!
+fi
 
 # Wait for port forwards to be ready
 echo "Waiting for port forwards to be ready..."
@@ -168,10 +214,20 @@ if ! ps -p $PF_AGENT_PID > /dev/null; then
     exit 1
 fi
 
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ] && ! ps -p $PF_PHOENIX_PID > /dev/null; then
+    echo "Error: Phoenix OTLP port-forward failed to start"
+    kill $PF_MCP_PID 2>/dev/null || true
+    kill $PF_AGENT_PID 2>/dev/null || true
+    exit 1
+fi
+
 echo ""
 echo "✓ Port forwarding established"
 echo "  MCP Server PID: $PF_MCP_PID"
 echo "  A2A Agent PID:  $PF_AGENT_PID"
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+    echo "  Phoenix PID:    $PF_PHOENIX_PID"
+fi
 echo ""
 
 # Function to cleanup on exit
@@ -180,6 +236,9 @@ cleanup() {
     echo "Cleaning up port forwards..."
     kill $PF_MCP_PID 2>/dev/null || true
     kill $PF_AGENT_PID 2>/dev/null || true
+    if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+        kill $PF_PHOENIX_PID 2>/dev/null || true
+    fi
     echo "Done."
 }
 
@@ -199,6 +258,15 @@ if curl -s -o /dev/null -w "%{http_code}" http://localhost:7701/.well-known/agen
     echo "✓ Reachable"
 else
     echo "⚠ May not be reachable - this might be OK"
+fi
+
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+    echo -n "  Phoenix OTLP: "
+    if nc -z localhost ${PHOENIX_OTLP_LOCAL_PORT} 2>/dev/null; then
+        echo "✓ Reachable"
+    else
+        echo "⚠ Port check failed"
+    fi
 fi
 
 echo ""
@@ -229,6 +297,13 @@ fi
 # Set URLs for port-forwarded services (override .env if present)
 export EXGENTIC_MCP_SERVER_URL="http://localhost:7770/mcp"
 export A2A_BASE_URL="http://localhost:7701"
+
+if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
+    export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:${PHOENIX_OTLP_LOCAL_PORT}"
+    export OTEL_EXPORTER_OTLP_PROTOCOL="grpc"
+    export OTEL_EXPORTER_OTLP_INSECURE="true"
+    echo "Phoenix OTEL export enabled: ${OTEL_EXPORTER_OTLP_ENDPOINT}"
+fi
 
 # Run the harness with optional log level
 LOG_LEVEL_ARG=""

@@ -176,11 +176,11 @@ Then edit the .env file as needed.
 
 | Environment Variable | Default | Description |
 | --- | --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `(none)` | OTLP collector endpoint (e.g., `http://localhost:4317` for Jaeger). If not set, no traces are exported. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `(none)` | OTLP collector endpoint (for this runner, use gRPC such as `http://localhost:4317`). If not set, no traces are exported. |
 | `OTEL_SERVICE_NAME` | `exgentic-a2a-runner` | Service name in traces. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `(none)` | Additional resource attributes (format: `key1=val1,key2=val2`). |
 | `OTEL_INSTRUMENT_REQUESTS` | `true` | Auto-instrument HTTP requests. |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | OTLP protocol (`grpc` or `http/protobuf`). |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | OTLP protocol. The current exporter implementation in [`OTELInstrumentation._initialize_tracing()`](exgentic_a2a_runner/exgentic_a2a_runner/otel.py:80) and [`OTELInstrumentation._initialize_metrics()`](exgentic_a2a_runner/exgentic_a2a_runner/otel.py:114) uses OTLP gRPC. |
 | `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Use insecure OTLP connection. |
 
 ### Advanced Configuration
@@ -227,13 +227,38 @@ This script will:
 
 The `evaluate-benchmark.sh` script automatically:
 - Sets up port forwarding (MCP server on localhost:7770, A2A agent on localhost:7701)
+- Optionally port-forwards Phoenix OTLP on localhost:4317 with `--phoenix-otel`
 - Waits for pods to be ready
-- Tests connectivity to both services
+- Tests connectivity to the forwarded services
 - Runs the benchmark evaluation
 - Cleans up port forwards on exit
 
 ```bash
 ./evaluate-benchmark.sh --benchmark tau2 --agent tool_calling
+./evaluate-benchmark.sh --benchmark gsm8k --agent tool_calling --phoenix-otel
+```
+
+When [`--phoenix-otel`](exgentic_a2a_runner/evaluate-benchmark.sh) is enabled, the script:
+- port-forwards the Phoenix OTLP service from `kagenti-system/phoenix` to `localhost:4317`
+- verifies cluster reachability early using [`kubectl cluster-info`](exgentic_a2a_runner/evaluate-benchmark.sh:109)
+- exports:
+  - `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`
+  - `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`
+  - `OTEL_EXPORTER_OTLP_INSECURE=true`
+
+To open the Phoenix UI from your host:
+```bash
+kubectl port-forward -n kagenti-system svc/phoenix 6006:6006
+```
+
+Then browse to:
+```text
+http://localhost:6006
+```
+
+If you want both UI access and OTLP ingest at the same time:
+```bash
+kubectl port-forward -n kagenti-system svc/phoenix 6006:6006 4317:4317
 ```
 
 
@@ -348,39 +373,49 @@ Each session creates a span (`exgentic_a2a.session`) with:
 
 ## OpenTelemetry and Observability
 
-### Setting up Local Jaeger for Tracing
+### Using Phoenix in the kind Cluster
 
-To visualize traces and metrics locally, you can run Jaeger using Docker:
+The Kagenti cluster already exposes a Phoenix service in the `kagenti-system` namespace.
 
-#### 1. Start Jaeger All-in-One
+#### 1. Send runner telemetry to Phoenix
+
+Use [`--phoenix-otel`](exgentic_a2a_runner/evaluate-benchmark.sh) so the script automatically port-forwards Phoenix OTLP and configures the required environment variables:
 
 ```bash
-docker run -d --name jaeger \
-  -e COLLECTOR_OTLP_ENABLED=true \
-  -p 16686:16686 \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  jaegertracing/all-in-one:latest
+env MAX_TASKS=1 MAX_PARALLEL_SESSIONS=1 ./evaluate-benchmark.sh --benchmark gsm8k --agent tool_calling --phoenix-otel
 ```
 
-This starts Jaeger with:
-- **UI**: http://localhost:16686 (view traces)
-- **OTLP gRPC**: localhost:4317 (for trace/metric export)
-- **OTLP HTTP**: localhost:4318 (alternative protocol)
+This forwards Phoenix OTLP gRPC to `localhost:4317` and exports telemetry before launching the runner.
 
-#### 2. Configure the Runner
-
-Update your `.env` file to enable OTEL export:
+#### 2. Open the Phoenix UI
 
 ```bash
-# Enable OTLP export to Jaeger
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+kubectl port-forward -n kagenti-system svc/phoenix 6006:6006
 ```
 
-#### 3. Run Your Benchmark
+Then open:
+- **Phoenix UI**: `http://localhost:6006`
+- **Phoenix GraphQL**: `http://localhost:6006/graphql`
 
+#### 3. Recover kind access if the cluster becomes unreachable
+
+If [`kubectl cluster-info`](exgentic_a2a_runner/evaluate-benchmark.sh:109) fails with `connection refused` while using the `kind-kagenti` context, the underlying Podman-backed kind control-plane container may be stopped.
+
+Check the cluster runtime:
 ```bash
-./evaluate_benchmark.sh appworld
+kind get clusters
+podman ps -a | grep kagenti-control-plane
+```
+
+If the control-plane container is exited, restore it with:
+```bash
+podman machine stop podman-machine-default || true
+podman machine start podman-machine-default
+podman start kagenti-control-plane
+kubectl cluster-info
+```
+
+In the observed failure, the control-plane container had exited and starting [`kagenti-control-plane`](exgentic_a2a_runner/evaluate-benchmark.sh) restored access immediately.
 ```
 
 #### 4. View Traces in Jaeger UI
