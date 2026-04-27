@@ -56,16 +56,55 @@ class A2AProxyClient:
         if timeout_s is None:
             timeout_s = float(self.config.timeout_seconds)
 
-        return self._run_async(self._async_send_prompt(prompt, timeout_s))
+        # Capture the current OTEL context from the calling thread so we can
+        # propagate it into the async event loop (which has its own context).
+        otel_context = None
+        if self.otel_enabled:
+            try:
+                from opentelemetry import context as otel_ctx
 
-    async def _async_send_prompt(self, prompt: str, timeout_s: float) -> str:
+                otel_context = otel_ctx.get_current()
+            except ImportError:
+                pass
+
+        return self._run_async(self._async_send_prompt(prompt, timeout_s, otel_context))
+
+    async def _async_send_prompt(self, prompt: str, timeout_s: float, otel_context=None) -> str:
         """Async implementation using the standard a2a-sdk."""
         import httpx
         from a2a.client import ClientConfig, ClientFactory, create_text_message_object
         from a2a.client.card_resolver import A2ACardResolver
         from a2a.types import Role, TextPart
 
+        # Restore the OTEL context from the calling thread so that
+        # httpx instrumentation creates spans under the correct parent.
+        if otel_context is not None:
+            try:
+                from opentelemetry import context as otel_ctx
+
+                token = otel_ctx.attach(otel_context)
+            except ImportError:
+                token = None
+        else:
+            token = None
+
         httpx_client = httpx.AsyncClient(timeout=timeout_s)
+        if self.otel_enabled:
+            try:
+                from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+            except ImportError as exc:
+                raise RuntimeError(
+                    "OTEL is enabled but opentelemetry-instrumentation-httpx is not installed. "
+                    "Install it with: pip install opentelemetry-instrumentation-httpx"
+                ) from exc
+
+            HTTPXClientInstrumentor().instrument_client(httpx_client)
+
+            if otel_context is None:
+                raise RuntimeError(
+                    "OTEL is enabled but no trace context was captured from the calling thread. "
+                    "Ensure an active OTEL span exists when send_prompt() is called."
+                )
 
         try:
             client_config = ClientConfig(httpx_client=httpx_client)
@@ -117,3 +156,11 @@ class A2AProxyClient:
 
         finally:
             await httpx_client.aclose()
+            # Detach the OTEL context
+            if token is not None:
+                try:
+                    from opentelemetry import context as otel_ctx
+
+                    otel_ctx.detach(token)
+                except Exception:
+                    pass
