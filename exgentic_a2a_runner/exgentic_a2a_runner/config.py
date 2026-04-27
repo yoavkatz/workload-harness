@@ -38,6 +38,8 @@ class ExgenticConfig:
     max_tasks: Optional[int] = None
     abort_on_failure: bool = False
     max_parallel_sessions: int = 1
+    benchmark_name: str = "unknown"
+    agent_name: str = "unknown"
 
     @classmethod
     def from_env(cls) -> "ExgenticConfig":
@@ -52,6 +54,8 @@ class ExgenticConfig:
             max_tasks=_get_int("MAX_TASKS"),
             abort_on_failure=_get_bool("ABORT_ON_FAILURE", False),
             max_parallel_sessions=_get_int("MAX_PARALLEL_SESSIONS", 1) or 1,
+            benchmark_name=os.getenv("BENCHMARK_NAME", "unknown"),
+            agent_name=os.getenv("AGENT_NAME", "unknown"),
         )
 
 

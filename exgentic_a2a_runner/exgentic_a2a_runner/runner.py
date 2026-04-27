@@ -237,10 +237,14 @@ class Runner:
             mcp_server_url=self.config.exgentic.mcp_server_url,
             a2a_base_url=self.config.a2a.base_url,
             a2a_timeout=self.config.a2a.timeout_seconds,
+            benchmark_name=self.config.exgentic.benchmark_name,
+            agent_name=self.config.exgentic.agent_name,
+            task_id=task_id,
+            num_parallel_tasks=self.config.exgentic.max_parallel_sessions,
         ) as span:
             try:
                 # Build prompt with session_id and context
-                with self.otel.child_span("exgentic_a2a.prompt.build") as prompt_span:
+                with self.otel.child_span("Prompt.Build") as prompt_span:
                     prompt = build_prompt(session_data.task, session_data.session_id, session_data.context)
                     # Record prompt on the build span
                     self.otel.record_prompt(prompt_span, prompt)
@@ -253,12 +257,13 @@ class Runner:
 
                 # Send A2A request (agent processing time)
                 agent_start = time.time()
-                with self.otel.child_span("exgentic_a2a.a2a.send_prompt") as a2a_span:
+                with self.otel.child_span("Agent.Call") as a2a_span:
+                    # Set OpenInference span kind for agent call
+                    a2a_span.set_attribute("openinference.span.kind", "AGENT")
                     response = self.a2a_client.send_prompt(prompt)
                     agent_processing_time = time.time() - agent_start
                     # Record prompt and response on the send span
-                    a2a_span.set_attribute("prompt.chars", len(prompt))
-                    a2a_span.set_attribute("prompt.text", prompt)
+                    self.otel.record_prompt(a2a_span, prompt)
                     self.otel.record_response(a2a_span, response)
                     self.otel.record_a2a_request(a2a_span, agent_processing_time)
 
@@ -271,12 +276,16 @@ class Runner:
 
                 # Evaluate session
                 eval_start = time.time()
-                with self.otel.child_span("exgentic_a2a.mcp.evaluate_session") as eval_span:
+                with self.otel.child_span("Evaluator.Evaluate") as eval_span:
+                    # Set OpenInference span kind for evaluator
+                    eval_span.set_attribute("openinference.span.kind", "EVALUATOR")
                     evaluation_result = self.exgentic.evaluate_session(session_id)
                     evaluation_time = time.time() - eval_start
-                    # Record evaluation result on the evaluate span
-                    eval_span.set_attribute("exgentic.evaluation_result", evaluation_result)
-                    eval_span.set_attribute("exgentic.evaluation_duration_seconds", evaluation_time)
+                    # Record evaluation result using Phoenix evaluation conventions
+                    eval_span.set_attribute("eval.name", "exgentic_benchmark_evaluation")
+                    eval_span.set_attribute("eval.result", "pass" if evaluation_result else "fail")
+                    eval_span.set_attribute("eval.score", 1.0 if evaluation_result else 0.0)
+                    eval_span.set_attribute("metadata.evaluation_duration_seconds", evaluation_time)
                     if self.otel.evaluation_latency_histogram:
                         self.otel.evaluation_latency_histogram.record(evaluation_time)
                 
@@ -284,7 +293,7 @@ class Runner:
                 self.otel.record_evaluation(span, evaluation_time)
 
                 # Delete session
-                with self.otel.child_span("exgentic_a2a.mcp.delete_session"):
+                with self.otel.child_span("MCP.DeleteSession"):
                     self.exgentic.delete_session(session_id)
 
                 # Record success

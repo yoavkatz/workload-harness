@@ -17,7 +17,7 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import Status, StatusCode, SpanKind
 
 from .config import OTELConfig
 
@@ -207,6 +207,10 @@ class OTELInstrumentation:
         mcp_server_url: str,
         a2a_base_url: str,
         a2a_timeout: int,
+        benchmark_name: str,
+        agent_name: str,
+        task_id: str,
+        num_parallel_tasks: int,
     ) -> Iterator[trace.Span]:
         """Create a span for session processing.
 
@@ -215,6 +219,10 @@ class OTELInstrumentation:
             mcp_server_url: MCP server URL
             a2a_base_url: A2A endpoint URL (sanitized)
             a2a_timeout: A2A timeout in seconds
+            benchmark_name: Name of the benchmark being run
+            agent_name: Name of the agent being tested
+            task_id: Task identifier
+            num_parallel_tasks: Number of parallel tasks configured
 
         Yields:
             Span object for adding events and attributes
@@ -228,12 +236,21 @@ class OTELInstrumentation:
 
         start_time = time.time()
 
-        with self.tracer.start_as_current_span("exgentic_a2a.session") as span:
+        with self.tracer.start_as_current_span(
+            "Agent.Session",
+            kind=SpanKind.CLIENT
+        ) as span:
             # Set span attributes
-            span.set_attribute("exgentic.session_id", session_id)
-            span.set_attribute("exgentic.mcp_server_url", mcp_server_url)
-            span.set_attribute("a2a.base_url", a2a_base_url)
-            span.set_attribute("a2a.timeout_seconds", a2a_timeout)
+            span.set_attribute("metadata.session_id", session_id)
+            span.set_attribute("metadata.mcp_server_url", mcp_server_url)
+            span.set_attribute("metadata.a2a_url", a2a_base_url)
+            span.set_attribute("metadata.timeout_seconds", a2a_timeout)
+            
+            # Set metadata attributes (using metadata. prefix for Arize Phoenix)
+            span.set_attribute("metadata.benchmark_name", benchmark_name)
+            span.set_attribute("metadata.agent_name", agent_name)
+            span.set_attribute("metadata.task_id", task_id)
+            span.set_attribute("metadata.num_parallel_tasks", num_parallel_tasks)
 
             try:
                 yield span
@@ -248,12 +265,21 @@ class OTELInstrumentation:
                     self.session_latency_histogram.record(latency_seconds)
 
     @contextmanager
-    def child_span(self, name: str) -> Iterator[trace.Span]:
-        """Create a child span under the current context."""
+    def child_span(self, name: str, kind: Optional[SpanKind] = None) -> Iterator[trace.Span]:
+        """Create a child span under the current context.
+        
+        Args:
+            name: Span name
+            kind: Optional span kind (e.g., SpanKind.INTERNAL, SpanKind.CLIENT)
+        """
         if not self.tracer:
             raise RuntimeError("OTEL not initialized")
 
-        with self.tracer.start_as_current_span(name) as span:
+        kwargs = {"name": name}
+        if kind is not None:
+            kwargs["kind"] = kind
+            
+        with self.tracer.start_as_current_span(**kwargs) as span:
             yield span
 
     def record_prompt(self, span: trace.Span, prompt: str) -> None:
@@ -264,9 +290,10 @@ class OTELInstrumentation:
             prompt: Prompt text
         """
         prompt_chars = len(prompt)
-        span.set_attribute("prompt.chars", prompt_chars)
-        span.set_attribute("prompt.text", prompt)
-        span.add_event("prompt_built")
+        # Use OpenInference semantic conventions for LLM spans
+        span.set_attribute("llm.input_messages", [{"message.content": prompt, "message.role": "user"}])
+        span.set_attribute("input.value", prompt)
+        span.set_attribute("input.mime_type", "text/plain")
 
         if self.prompt_size_histogram:
             self.prompt_size_histogram.record(prompt_chars)
@@ -295,8 +322,10 @@ class OTELInstrumentation:
             response: Response text
         """
         response_chars = len(response)
-        span.set_attribute("response.chars", response_chars)
-        span.set_attribute("response.text", response)
+        # Use OpenInference semantic conventions for LLM spans
+        span.set_attribute("llm.output_messages", [{"message.content": response, "message.role": "assistant"}])
+        span.set_attribute("output.value", response)
+        span.set_attribute("output.mime_type", "text/plain")
 
         if self.response_size_histogram:
             self.response_size_histogram.record(response_chars)
@@ -308,8 +337,8 @@ class OTELInstrumentation:
             span: Current span
             evaluation_result: Whether the session evaluation was successful
         """
-        span.set_attribute("session.status", "success")
-        span.set_attribute("exgentic.evaluation_result", evaluation_result)
+        span.set_attribute("metadata.status", "success")
+        span.set_attribute("metadata.evaluation_result", evaluation_result)
         span.set_status(Status(StatusCode.OK))
 
         if self.sessions_counter:
@@ -328,12 +357,12 @@ class OTELInstrumentation:
             error: Exception that caused failure
             error_type: Error type classification
         """
-        span.set_attribute("session.status", "failed")
+        span.set_attribute("metadata.status", "failed")
         span.add_event(
-            "session_failed",
+            "exception",
             attributes={
-                "error.type": error_type,
-                "error.message": str(error),
+                "exception.type": error_type,
+                "exception.message": str(error),
             },
         )
         span.set_status(Status(StatusCode.ERROR, str(error)))
@@ -352,7 +381,7 @@ class OTELInstrumentation:
             span: Current span
             duration_seconds: Evaluation duration in seconds
         """
-        span.set_attribute("exgentic.evaluation_duration_seconds", duration_seconds)
+        span.set_attribute("metadata.evaluation_duration_seconds", duration_seconds)
 
         if self.evaluation_latency_histogram:
             self.evaluation_latency_histogram.record(duration_seconds)

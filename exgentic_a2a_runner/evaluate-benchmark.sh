@@ -8,7 +8,7 @@ set -e
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 
 BENCHMARK_NAME=""
-AGENT_NAME_INPUT=""
+AGENT_NAME=""
 PHOENIX_OTEL_ENABLED="false"
 PHOENIX_NAMESPACE="kagenti-system"
 PHOENIX_SERVICE="phoenix"
@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --agent)
-            AGENT_NAME_INPUT="$2"
+            AGENT_NAME="$2"
             shift 2
             ;;
         --phoenix-otel)
@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [ -z "$BENCHMARK_NAME" ] || [ -z "$AGENT_NAME_INPUT" ]; then
+if [ -z "$BENCHMARK_NAME" ] || [ -z "$AGENT_NAME" ]; then
     echo "Error: Both --benchmark and --agent are required"
     echo "Usage: $0 --benchmark <name> --agent <name> [--phoenix-otel]"
     echo "Use --help for more information"
@@ -72,10 +72,10 @@ if [ -f "$(dirname "$0")/.env" ]; then
 fi
 
 # Construct agent service name
-if [[ "$AGENT_NAME_INPUT" == exgentic-a2a-* ]]; then
-    FULL_AGENT_NAME="$AGENT_NAME_INPUT"
+if [[ "$AGENT_NAME" == exgentic-a2a-* ]]; then
+    FULL_AGENT_NAME="$AGENT_NAME"
 else
-    FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME_INPUT}"
+    FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME}"
 fi
 # Replace underscores with hyphens for Kubernetes compatibility
 export AGENT_SERVICE="${FULL_AGENT_NAME}-${BENCHMARK_NAME}"
@@ -297,6 +297,10 @@ fi
 # Set URLs for port-forwarded services (override .env if present)
 export EXGENTIC_MCP_SERVER_URL="http://localhost:7770/mcp"
 export A2A_BASE_URL="http://localhost:7701"
+
+# Export benchmark and agent names for telemetry
+export BENCHMARK_NAME="$BENCHMARK_NAME"
+export AGENT_NAME="$AGENT_NAME"
 
 if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
     export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:${PHOENIX_OTLP_LOCAL_PORT}"
