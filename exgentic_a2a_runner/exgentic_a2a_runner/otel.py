@@ -238,8 +238,11 @@ class OTELInstrumentation:
 
         with self.tracer.start_as_current_span(
             "Agent.Session",
-            kind=SpanKind.CLIENT
+            kind=SpanKind.INTERNAL
         ) as span:
+            # Set span kind to CHAIN for OpenInference
+            span.set_attribute("openinference.span.kind", "CHAIN")
+            
             # Set span attributes
             span.set_attribute("metadata.session_id", session_id)
             span.set_attribute("metadata.mcp_server_url", mcp_server_url)
@@ -309,7 +312,7 @@ class OTELInstrumentation:
             span: Current span
             duration_seconds: Request duration in seconds
         """
-        span.set_attribute("a2a.duration_seconds", duration_seconds)
+        span.set_attribute("metadata.agent_call_duration_seconds", duration_seconds)
 
         if self.a2a_latency_histogram:
             self.a2a_latency_histogram.record(duration_seconds)
@@ -393,7 +396,7 @@ class OTELInstrumentation:
             span: Current span
             duration_seconds: Creation duration in seconds
         """
-        span.set_attribute("exgentic.session_creation_duration_seconds", duration_seconds)
+        span.set_attribute("meta_data.session_creation_duration_seconds", duration_seconds)
 
         if self.session_creation_latency_histogram:
             self.session_creation_latency_histogram.record(duration_seconds)

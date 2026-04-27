@@ -205,35 +205,14 @@ class Runner:
             SessionResult with execution details and separate timings
         """
         start_time = time.time()
-        session_id = None
+        session_id: str = f"pending-{task_id}"  # Initialize with temporary ID
+        creation_time: float = 0.0  # Initialize creation time
 
         logger.info(f"Processing task: {task_id}")
 
-        # Create session on-demand
-        creation_start = time.time()
-        try:
-            session_data = self.exgentic.create_session(task_id=task_id)
-            session_id = session_data.session_id
-            creation_time = time.time() - creation_start
-            logger.info(f"Created session {session_id} for task {task_id} in {creation_time:.2f}s")
-        except Exception as e:
-            creation_time = time.time() - creation_start
-            error_msg = f"Failed to create session: {type(e).__name__}: {str(e)}"
-            logger.error(error_msg)
-            return SessionResult(
-                session_id=f"failed-{task_id}",
-                success=False,
-                latency_seconds=0.0,  # No agent processing time on creation failure
-                evaluation_result=False,
-                creation_time_seconds=creation_time,
-                agent_processing_seconds=0.0,
-                evaluation_time_seconds=0.0,
-                error=error_msg,
-            )
-
-        # Start OTEL span
+        # Start OTEL span (session creation will be inside)
         with self.otel.session_span(
-            session_id=session_id,
+            session_id=f"pending-{task_id}",  # Temporary ID until session is created
             mcp_server_url=self.config.exgentic.mcp_server_url,
             a2a_base_url=self.config.a2a.base_url,
             a2a_timeout=self.config.a2a.timeout_seconds,
@@ -243,6 +222,36 @@ class Runner:
             num_parallel_tasks=self.config.exgentic.max_parallel_sessions,
         ) as span:
             try:
+                # Create session on-demand (inside the CHAIN span)
+                creation_start = time.time()
+                with self.otel.child_span("MCP.CreateSession") as create_span:
+                    try:
+                        session_data = self.exgentic.create_session(task_id=task_id)
+                        session_id = session_data.session_id
+                        creation_time = time.time() - creation_start
+                        # Update the session_id attribute on the parent span
+                        span.set_attribute("metadata.session_id", session_id)
+                        create_span.set_attribute("metadata.session_id", session_id)
+                        logger.info(f"Created session {session_id} for task {task_id} in {creation_time:.2f}s")
+                    except Exception as e:
+                        creation_time = time.time() - creation_start
+                        error_msg = f"Failed to create session: {type(e).__name__}: {str(e)}"
+                        logger.error(error_msg)
+                        create_span.set_attribute("error", True)
+                        create_span.set_attribute("error.message", error_msg)
+                        # Record failure and return early
+                        self.otel.record_failure(span, e, "session_creation_failed")
+                        return SessionResult(
+                            session_id=f"failed-{task_id}",
+                            success=False,
+                            latency_seconds=0.0,
+                            evaluation_result=False,
+                            creation_time_seconds=creation_time,
+                            agent_processing_seconds=0.0,
+                            evaluation_time_seconds=0.0,
+                            error=error_msg,
+                        )
+
                 # Build prompt with session_id and context
                 with self.otel.child_span("Prompt.Build") as prompt_span:
                     prompt = build_prompt(session_data.task, session_data.session_id, session_data.context)
@@ -324,12 +333,13 @@ class Runner:
 
                 logger.error(f"Session {session_id} failed: {error_type}: {error_msg}")
 
-                # Try to delete session even on failure
-                try:
-                    with self.otel.child_span("exgentic_a2a.mcp.delete_session"):
-                        self.exgentic.delete_session(session_id)
-                except Exception as delete_error:
-                    logger.warning(f"Failed to delete session {session_id}: {delete_error}")
+                # Try to delete session even on failure (only if session was created)
+                if session_id and not session_id.startswith("pending-"):
+                    try:
+                        with self.otel.child_span("MCP.DeleteSession"):
+                            self.exgentic.delete_session(session_id)
+                    except Exception as delete_error:
+                        logger.warning(f"Failed to delete session {session_id}: {delete_error}")
 
                 # Record failure
                 self.otel.record_failure(span, e, error_type)
