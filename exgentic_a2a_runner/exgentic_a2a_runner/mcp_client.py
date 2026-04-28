@@ -31,11 +31,18 @@ class MCPClient:
         """
         self.config = config
         self.mcp_url = config.mcp_server_url
+        self._tool_prefix = config.mcp_tool_prefix
         self._local = threading.local()
         self._initialized = False
 
         logger.info(f"Initialized MCP client for {self.mcp_url}")
     
+    def _tool_name(self, name: str) -> str:
+        """Apply the configured tool prefix to a base tool name."""
+        if self._tool_prefix:
+            return f"{self._tool_prefix}{name}"
+        return name
+
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         """Get or create thread-local event loop."""
         if not hasattr(self._local, 'loop'):
@@ -152,7 +159,7 @@ class MCPClient:
                 await session.initialize()
                 
                 # Call list_tasks tool
-                result = await session.call_tool("list_tasks", arguments={})
+                result = await session.call_tool(self._tool_name("list_tasks"), arguments={})
                 
                 if not result.content:
                     raise RuntimeError("Empty response from list_tasks")
@@ -174,7 +181,7 @@ class MCPClient:
                 await session.initialize()
                 
                 # Call create_session tool with task_id
-                result = await session.call_tool("create_session", arguments={"task_id": task_id})
+                result = await session.call_tool(self._tool_name("create_session"), arguments={"task_id": task_id})
                 
                 if not result.content:
                     raise RuntimeError("Empty response from create_session")
@@ -227,7 +234,7 @@ class MCPClient:
                 
                 # Call evaluate_session tool
                 result = await session.call_tool(
-                    "evaluate_session",
+                    self._tool_name("evaluate_session"),
                     arguments={"session_id": session_id}
                 )
                 
@@ -274,7 +281,7 @@ class MCPClient:
 
                     # Call delete_session tool
                     result = await session.call_tool(
-                        "delete_session",
+                        self._tool_name("delete_session"),
                         arguments={"session_id": session_id}
                     )
         except BaseExceptionGroup:  # type: ignore[misc]
