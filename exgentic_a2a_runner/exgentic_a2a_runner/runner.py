@@ -179,12 +179,30 @@ class Runner:
         self.otel = OTELInstrumentation(config.otel)
         self.summary = RunSummary()
         self.max_parallel_sessions = config.exgentic.max_parallel_sessions
+        self.prometheus = None
 
     def initialize(self) -> None:
         """Initialize all components."""
         logger.info("Initializing runner components")
         self.otel.initialize()
         self.exgentic.initialize()
+
+        # Initialize Prometheus metrics collector (optional)
+        if self.config.prometheus.enabled:
+            from .prometheus_client import PrometheusMetricsCollector
+
+            collector = PrometheusMetricsCollector(
+                prometheus_url=self.config.prometheus.url,
+                namespace=self.config.prometheus.namespace,
+                mcp_pod_prefix=self.config.prometheus.mcp_pod_prefix,
+                a2a_pod_prefix=self.config.prometheus.a2a_pod_prefix,
+            )
+            if collector.check_connectivity():
+                self.prometheus = collector
+                logger.info("Prometheus metrics collection enabled (%s)", self.config.prometheus.url)
+            else:
+                logger.warning("Prometheus not reachable at %s, infra metrics disabled", self.config.prometheus.url)
+
         logger.info("Runner initialization complete")
 
     def process_task(self, task_id: str) -> SessionResult:
@@ -300,6 +318,25 @@ class Runner:
                 
                 # Also record on parent span for backward compatibility
                 self.otel.record_evaluation(span, evaluation_time)
+
+                # Collect infrastructure metrics from Prometheus
+                if self.prometheus:
+                    try:
+                        with self.otel.child_span("Infra.Metrics"):
+                            infra_metrics = self.prometheus.collect_session_metrics(
+                                creation_start, time.time()
+                            )
+                            for pod_key, pod_metrics in infra_metrics.items():
+                                span.set_attribute(f"infra.{pod_key}.cpu_utilization_pct", pod_metrics.cpu_utilization_pct)
+                                span.set_attribute(f"infra.{pod_key}.cpu_limit_cores", pod_metrics.cpu_limit_cores)
+                                span.set_attribute(f"infra.{pod_key}.throttle_pct", pod_metrics.throttle_pct)
+                                span.set_attribute(f"infra.{pod_key}.memory_max_mb", pod_metrics.memory_max_mb)
+                                span.set_attribute(f"infra.{pod_key}.memory_limit_mb", pod_metrics.memory_limit_mb)
+                                span.set_attribute(f"infra.{pod_key}.memory_utilization_pct", pod_metrics.memory_utilization_pct)
+                                span.set_attribute(f"infra.{pod_key}.network_rx_mb", pod_metrics.network_rx_mb)
+                                span.set_attribute(f"infra.{pod_key}.network_tx_mb", pod_metrics.network_tx_mb)
+                    except Exception as e:
+                        logger.warning("Failed to collect infra metrics: %s", e)
 
                 # Delete session
                 with self.otel.child_span("MCP.DeleteSession"):

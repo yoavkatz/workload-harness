@@ -110,6 +110,30 @@ class OTELConfig:
 
 
 @dataclass
+class PrometheusConfig:
+    """Prometheus metrics collection configuration."""
+
+    url: Optional[str] = None
+    namespace: str = "team1"
+    mcp_pod_prefix: Optional[str] = None
+    a2a_pod_prefix: Optional[str] = None
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.url and self.mcp_pod_prefix and self.a2a_pod_prefix)
+
+    @classmethod
+    def from_env(cls) -> "PrometheusConfig":
+        """Load Prometheus configuration from environment variables."""
+        return cls(
+            url=os.getenv("PROMETHEUS_URL"),
+            namespace=os.getenv("INFRA_NAMESPACE", "team1"),
+            mcp_pod_prefix=os.getenv("INFRA_MCP_POD_PREFIX"),
+            a2a_pod_prefix=os.getenv("INFRA_A2A_POD_PREFIX"),
+        )
+
+
+@dataclass
 class DebugConfig:
     """Debug and logging configuration."""
 
@@ -132,6 +156,7 @@ class Config:
     exgentic: ExgenticConfig
     a2a: A2AConfig
     otel: OTELConfig
+    prometheus: PrometheusConfig
     debug: DebugConfig
 
     @classmethod
@@ -141,6 +166,7 @@ class Config:
             exgentic=ExgenticConfig.from_env(),
             a2a=A2AConfig.from_env(),
             otel=OTELConfig.from_env(),
+            prometheus=PrometheusConfig.from_env(),
             debug=DebugConfig.from_env(),
         )
 

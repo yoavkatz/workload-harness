@@ -44,6 +44,21 @@ class TraceRecord:
     llm_input_tokens: int = 0
     llm_output_tokens: int = 0
 
+    # Infrastructure metrics per pod
+    mcp_cpu_utilization_pct: float = 0.0
+    mcp_throttle_pct: float = 0.0
+    mcp_memory_max_mb: float = 0.0
+    mcp_memory_utilization_pct: float = 0.0
+    mcp_network_rx_mb: float = 0.0
+    mcp_network_tx_mb: float = 0.0
+    a2a_cpu_utilization_pct: float = 0.0
+    a2a_throttle_pct: float = 0.0
+    a2a_memory_max_mb: float = 0.0
+    a2a_memory_utilization_pct: float = 0.0
+    a2a_network_rx_mb: float = 0.0
+    a2a_network_tx_mb: float = 0.0
+    has_infra: bool = False
+
 
 def parse_attrs(node: dict) -> dict:
     """Parse span attributes, handling JSON string or dict."""
@@ -159,6 +174,19 @@ def parse_traces(data: dict) -> list[TraceRecord]:
         if record.evaluation_s == 0:
             record.evaluation_s = float(meta.get("evaluation_duration_seconds", 0))
 
+        # Parse infrastructure metrics from root span attributes
+        infra = root_attrs.get("infra", {})
+        for pod_key in ("mcp", "a2a"):
+            pod_infra = infra.get(pod_key, {})
+            if pod_infra:
+                record.has_infra = True
+                setattr(record, f"{pod_key}_cpu_utilization_pct", float(pod_infra.get("cpu_utilization_pct", 0)))
+                setattr(record, f"{pod_key}_throttle_pct", float(pod_infra.get("throttle_pct", 0)))
+                setattr(record, f"{pod_key}_memory_max_mb", float(pod_infra.get("memory_max_mb", 0)))
+                setattr(record, f"{pod_key}_memory_utilization_pct", float(pod_infra.get("memory_utilization_pct", 0)))
+                setattr(record, f"{pod_key}_network_rx_mb", float(pod_infra.get("network_rx_mb", 0)))
+                setattr(record, f"{pod_key}_network_tx_mb", float(pod_infra.get("network_tx_mb", 0)))
+
         records.append(record)
 
     return records
@@ -265,6 +293,40 @@ def print_report(records: list[TraceRecord]) -> None:
             print(f"  Avg LLM output tokens:     {avg(output_tokens):.0f}")
         if any(input_tokens) or any(output_tokens):
             print(f"  Avg LLM total tokens:      {avg([i + o for i, o in zip(input_tokens, output_tokens)]):.0f}")
+
+        # Infrastructure metrics (only from traces that have infra data)
+        infra_traces = [t for t in traces if t.has_infra]
+
+        def infra_section(pod_label: str, pod_key: str) -> None:
+            if not infra_traces:
+                return
+
+            cpu_util = [getattr(t, f"{pod_key}_cpu_utilization_pct") for t in infra_traces]
+            throttle = [getattr(t, f"{pod_key}_throttle_pct") for t in infra_traces]
+            mem = [getattr(t, f"{pod_key}_memory_max_mb") for t in infra_traces]
+            mem_util = [getattr(t, f"{pod_key}_memory_utilization_pct") for t in infra_traces]
+            rx = [getattr(t, f"{pod_key}_network_rx_mb") for t in infra_traces]
+            tx = [getattr(t, f"{pod_key}_network_tx_mb") for t in infra_traces]
+
+            if not any(cpu_util) and not any(mem):
+                return
+
+            print()
+            print(f"  Infrastructure ({pod_label} pod, n={len(infra_traces)})   {'Avg':>9s} {'P50':>9s} {'Max':>9s}")
+            print(f"  {'-' * 34} {'-' * 9} {'-' * 9} {'-' * 9}")
+
+            def infra_row(label: str, values: list[float], fmt: str = ".2f") -> None:
+                print(f"  {label:<34s} {avg(values):>9{fmt}} {percentile(values, 0.5):>9{fmt}} {max(values):>9{fmt}}")
+
+            infra_row("CPU Utilization (%)", cpu_util, ".1f")
+            infra_row("CPU Throttle (%)", throttle, ".1f")
+            infra_row("Memory Max (MB)", mem, ".0f")
+            infra_row("Memory Utilization (%)", mem_util, ".1f")
+            infra_row("Network RX (MB)", rx, ".3f")
+            infra_row("Network TX (MB)", tx, ".3f")
+
+        infra_section("MCP", "mcp")
+        infra_section("A2A", "a2a")
         print()
 
     # Individual traces

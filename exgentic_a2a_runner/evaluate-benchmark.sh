@@ -198,6 +198,15 @@ if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
     PF_PHOENIX_PID=$!
 fi
 
+# Prometheus port-forward for infra metrics
+PROMETHEUS_LOCAL_PORT="9191"
+PROMETHEUS_NAMESPACE="istio-system"
+PROMETHEUS_SERVICE="prometheus"
+
+echo "Starting port-forward for Prometheus..."
+"$KUBECTL_BIN" port-forward -n $PROMETHEUS_NAMESPACE svc/$PROMETHEUS_SERVICE ${PROMETHEUS_LOCAL_PORT}:9090 >/dev/null 2>&1 &
+PF_PROMETHEUS_PID=$!
+
 # Wait for port forwards to be ready
 echo "Waiting for port forwards to be ready..."
 sleep 5
@@ -239,6 +248,7 @@ cleanup() {
     if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
         kill $PF_PHOENIX_PID 2>/dev/null || true
     fi
+    kill $PF_PROMETHEUS_PID 2>/dev/null || true
     echo "Done."
 }
 
@@ -301,6 +311,12 @@ export A2A_BASE_URL="http://localhost:7701"
 # Export benchmark and agent names for telemetry
 export BENCHMARK_NAME="$BENCHMARK_NAME"
 export AGENT_NAME="$AGENT_NAME"
+
+# Export Prometheus config for infra metrics collection
+export PROMETHEUS_URL="http://localhost:${PROMETHEUS_LOCAL_PORT}"
+export INFRA_MCP_POD_PREFIX="$BENCHMARK_DEPLOYMENT"
+export INFRA_A2A_POD_PREFIX="$AGENT_DEPLOYMENT"
+export INFRA_NAMESPACE="team1"
 
 if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
     export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:${PHOENIX_OTLP_LOCAL_PORT}"
