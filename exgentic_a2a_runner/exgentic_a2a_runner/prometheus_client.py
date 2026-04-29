@@ -61,7 +61,7 @@ class PrometheusMetricsCollector:
             if results:
                 return float(results[0]["value"][1])
         except Exception as e:
-            logger.debug("Prometheus query failed: %s (query: %s)", e, promql)
+            logger.warning("Prometheus query failed: %s (query: %s)", e, promql)
         return None
 
     def _pod_selector(self, pod_prefix: str) -> str:
@@ -121,7 +121,7 @@ class PrometheusMetricsCollector:
             f'sum(increase(container_network_transmit_bytes_total{{{sel}}}[{duration}s]))', end
         ) or 0.0
 
-        return PodMetrics(
+        metrics = PodMetrics(
             cpu_utilization_pct=round(cpu_utilization_pct, 1),
             cpu_limit_cores=round(cpu_limit_cores, 2),
             throttle_pct=round(throttle_pct, 1),
@@ -131,6 +131,14 @@ class PrometheusMetricsCollector:
             network_rx_mb=round(network_rx / (1024 * 1024), 3) if network_rx else 0.0,
             network_tx_mb=round(network_tx / (1024 * 1024), 3) if network_tx else 0.0,
         )
+        logger.info(
+            "Pod %s metrics: cpu=%.1f%% throttle=%.1f%% mem=%.1fMB/%.1fMB(%.1f%%) "
+            "net_rx=%.3fMB net_tx=%.3fMB (window=%ds)",
+            pod_prefix, cpu_utilization_pct, throttle_pct,
+            memory_max_mb, memory_limit_mb, memory_utilization_pct,
+            metrics.network_rx_mb, metrics.network_tx_mb, duration,
+        )
+        return metrics
 
     def collect_session_metrics(
         self, start_time: float, end_time: float

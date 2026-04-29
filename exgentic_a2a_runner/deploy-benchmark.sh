@@ -426,10 +426,10 @@ if [[ "$BENCHMARK_NAME" == tau* ]] && [ -n "$MODEL_NAME" ]; then
 fi
 
 # Set EXGENTIC_SET_BENCHMARK_RUNNER based on benchmark type
-#if [[ "$BENCHMARK_NAME" == "gsm8k" ]]; then
-#    echo "Adding EXGENTIC_SET_BENCHMARK_RUNNER=process for gsm8k benchmark"
-#   ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"EXGENTIC_SET_BENCHMARK_RUNNER\", \"value\": \"process\"}]")
-#fi
+if [[ "$BENCHMARK_NAME" == "gsm8k" ]]; then
+    echo "Adding EXGENTIC_SET_BENCHMARK_RUNNER=direct for gsm8k benchmark"
+    ENV_VARS=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"EXGENTIC_SET_BENCHMARK_RUNNER\", \"value\": \"direct\"}]")
+fi
 
 echo "✓ Environment variables prepared for deployment"
 echo ""

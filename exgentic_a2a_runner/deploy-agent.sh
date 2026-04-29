@@ -423,6 +423,10 @@ fi
 echo "Adding EXGENTIC_OTEL_ENABLED and OTEL_EXPORTER_OTLP_PROTOCOL to environment variables"
 ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS_WITH_CONFIG" | jq ". + [{\"name\": \"EXGENTIC_OTEL_ENABLED\", \"value\": \"true\"}, {\"name\": \"OTEL_EXPORTER_OTLP_PROTOCOL\", \"value\": \"http/protobuf\"}]")
 
+# Set agent runner to thread for in-process execution (avoids venv subprocess overhead)
+echo "Adding EXGENTIC_DEFAULT_RUNNER=thread for agent"
+ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS_WITH_CONFIG" | jq ". + [{\"name\": \"EXGENTIC_DEFAULT_RUNNER\", \"value\": \"thread\"}]")
+
 echo "✓ Environment variables prepared for deployment"
 echo ""
 
