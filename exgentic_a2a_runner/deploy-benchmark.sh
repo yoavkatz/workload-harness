@@ -333,6 +333,14 @@ else
     cat /tmp/kagenti_delete_response.txt
 fi
 
+# Delete MCP Gateway resources if gateway mode is enabled
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    echo "Deleting existing MCP Gateway resources if they exist..."
+    kubectl delete httproute "${TOOL_NAME}-route" -n "$NAMESPACE" --ignore-not-found
+    kubectl delete mcpserverregistrations "${TOOL_NAME}-servers" -n "$NAMESPACE" --ignore-not-found
+    echo "✓ MCP Gateway resources cleaned up"
+fi
+
 # Wait a moment for deletion to complete
 sleep 3
 
