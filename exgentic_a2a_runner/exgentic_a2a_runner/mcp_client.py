@@ -32,11 +32,17 @@ class MCPClient:
         """
         self.config = config
         self.mcp_url = config.mcp_server_url
+        self._tool_prefix = config.mcp_tool_prefix
         self._local = threading.local()
         self._initialized = False
 
         logger.info(f"Initialized MCP client for {self.mcp_url}")
 
+    def _tool_name(self, name: str) -> str:
+        """Apply the configured tool prefix to a base tool name."""
+        if self._tool_prefix:
+            return f"{self._tool_prefix}{name}"
+        return name
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         """Get or create thread-local event loop."""
         if not hasattr(self._local, "loop"):
@@ -111,13 +117,13 @@ class MCPClient:
         """
         session = await self._ensure_session()
         try:
-            result = await session.call_tool(tool_name, arguments=arguments)
+            result = await session.call_tool(self._tool_name(tool_name), arguments=arguments)
         except (ConnectionError, OSError, TimeoutError) as e:
             # Session may be stale — reconnect and retry once for connection errors only
             logger.debug(f"Connection error calling {tool_name}, reconnecting: {e}")
             await self._close_session_async()
             session = await self._ensure_session()
-            result = await session.call_tool(tool_name, arguments=arguments)
+            result = await session.call_tool(self._tool_name(tool_name), arguments=arguments)
         except BaseExceptionGroup as e:
             # anyio's TaskGroup wraps background task exceptions in BaseExceptionGroup
             # This can occur when the SSE stream fails (e.g., session already cleaned up server-side)

@@ -12,6 +12,7 @@ MODEL_NAME="Azure/gpt-4.1"
 KEYCLOAK_USERNAME="admin"
 KEYCLOAK_PASSWORD="unknown"
 BENCHMARK_NAME=""
+USE_MCP_GATEWAY="false"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -32,6 +33,10 @@ while [[ $# -gt 0 ]]; do
             KEYCLOAK_PASSWORD="$2"
             shift 2
             ;;
+        --use-mcp-gateway)
+            USE_MCP_GATEWAY="true"
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 --benchmark <name> [OPTIONS]"
             echo ""
@@ -42,12 +47,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --model MODEL              Model name (default: Azure/gpt-4.1)"
             echo "  --keycloak-user USER       Keycloak username (default: admin)"
             echo "  --keycloak-pass PASS       Keycloak password (auto-detected from cluster if not provided)"
+            echo "  --use-mcp-gateway          Register MCP server with the MCP Gateway"
             echo "  -h, --help                 Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0 --benchmark gsm8k"
             echo "  $0 --benchmark tau2 --model Azure/gpt-4o-mini"
             echo "  $0 --benchmark tau2 --model Azure/gpt-4o-mini --keycloak-user admin --keycloak-pass admin"
+            echo "  $0 --benchmark tau2 --use-mcp-gateway"
             exit 0
             ;;
         -*)
@@ -324,6 +331,14 @@ if [ "$DELETE_RESPONSE" = "200" ] || [ "$DELETE_RESPONSE" = "404" ]; then
 else
     echo "Warning: Delete returned HTTP $DELETE_RESPONSE"
     cat /tmp/kagenti_delete_response.txt
+fi
+
+# Delete MCP Gateway resources if gateway mode is enabled
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    echo "Deleting existing MCP Gateway resources if they exist..."
+    kubectl delete httproute "${TOOL_NAME}-route" -n "$NAMESPACE" --ignore-not-found
+    kubectl delete mcpserverregistrations "${TOOL_NAME}-servers" -n "$NAMESPACE" --ignore-not-found
+    echo "✓ MCP Gateway resources cleaned up"
 fi
 
 # Wait a moment for deletion to complete
@@ -636,6 +651,103 @@ if [ -n "$MCP_SVC_NAME" ]; then
         echo "⚠ MCP server did not respond to health check after 60s"
         echo "  The server may still be starting up"
     fi
+fi
+
+# Step 14: Register with MCP Gateway (conditional)
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    echo ""
+    echo "=========================================="
+    echo "Step 14: Registering MCP server with Gateway"
+    echo "=========================================="
+    echo ""
+
+    # Kagenti appends -mcp to the service name
+    MCP_SVC_NAME="${TOOL_NAME}-mcp"
+    if ! kubectl get svc "$MCP_SVC_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+        MCP_SVC_NAME="$TOOL_NAME"
+    fi
+
+    echo "Creating HTTPRoute for $TOOL_NAME..."
+    kubectl apply -f - <<ROUTE_EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ${TOOL_NAME}-route
+  namespace: ${NAMESPACE}
+  labels:
+    mcp-server: "true"
+spec:
+  parentRefs:
+  - name: mcp-gateway
+    namespace: gateway-system
+  hostnames:
+  - "${TOOL_NAME}.mcp.local"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: ${MCP_SVC_NAME}
+      port: 8000
+ROUTE_EOF
+
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to create HTTPRoute"
+        exit 1
+    fi
+    echo "✓ HTTPRoute created"
+    echo ""
+
+    echo "Creating MCPServerRegistration for $TOOL_NAME..."
+    kubectl apply -f - <<REG_EOF
+apiVersion: mcp.kagenti.com/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: ${TOOL_NAME}-servers
+  namespace: ${NAMESPACE}
+spec:
+  toolPrefix: exgentic_
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${TOOL_NAME}-route
+    namespace: ${NAMESPACE}
+REG_EOF
+
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to create MCPServerRegistration"
+        exit 1
+    fi
+    echo "✓ MCPServerRegistration created"
+    echo ""
+
+    echo "Waiting for MCPServerRegistration to become Ready..."
+    GATEWAY_MAX_WAIT=120
+    GATEWAY_ELAPSED=0
+    while [ $GATEWAY_ELAPSED -lt $GATEWAY_MAX_WAIT ]; do
+        REG_STATUS=$(kubectl get mcpserverregistrations "${TOOL_NAME}-servers" -n "$NAMESPACE" \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+
+        if [ "$REG_STATUS" = "True" ]; then
+            echo "✓ MCPServerRegistration is Ready"
+            break
+        fi
+
+        if [ $((GATEWAY_ELAPSED % 15)) -eq 0 ] && [ $GATEWAY_ELAPSED -gt 0 ]; then
+            echo "  Waiting for MCPServerRegistration... (${GATEWAY_ELAPSED}s)"
+        fi
+        sleep 5
+        GATEWAY_ELAPSED=$((GATEWAY_ELAPSED + 5))
+    done
+
+    if [ $GATEWAY_ELAPSED -ge $GATEWAY_MAX_WAIT ]; then
+        echo "⚠ MCPServerRegistration did not become Ready within ${GATEWAY_MAX_WAIT}s"
+        echo "  Check status: kubectl get mcpserverregistrations ${TOOL_NAME}-servers -n $NAMESPACE -o yaml"
+        echo "  Continuing anyway..."
+    fi
+
+    echo ""
 fi
 
 echo ""

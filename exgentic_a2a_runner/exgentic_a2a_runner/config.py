@@ -35,6 +35,7 @@ class ExgenticConfig:
 
     mcp_server_url: str
     mcp_timeout_seconds: int = 60
+    mcp_tool_prefix: str = ""
     max_tasks: Optional[int] = None
     abort_on_failure: bool = False
     max_parallel_sessions: int = 1
@@ -51,6 +52,7 @@ class ExgenticConfig:
         return cls(
             mcp_server_url=mcp_server_url,
             mcp_timeout_seconds=_get_int("EXGENTIC_MCP_TIMEOUT_SECONDS", 60) or 60,
+            mcp_tool_prefix=os.getenv("EXGENTIC_MCP_TOOL_PREFIX", ""),
             max_tasks=_get_int("MAX_TASKS"),
             abort_on_failure=_get_bool("ABORT_ON_FAILURE", False),
             max_parallel_sessions=_get_int("MAX_PARALLEL_SESSIONS", 1) or 1,

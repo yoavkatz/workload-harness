@@ -12,6 +12,7 @@ KEYCLOAK_USERNAME="admin"
 KEYCLOAK_PASSWORD="unknown"
 BENCHMARK_NAME=""
 AGENT_NAME_INPUT=""
+USE_MCP_GATEWAY="false"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -36,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             KEYCLOAK_PASSWORD="$2"
             shift 2
             ;;
+        --use-mcp-gateway)
+            USE_MCP_GATEWAY="true"
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 --benchmark <name> --agent <name> [OPTIONS]"
             echo ""
@@ -47,12 +52,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --model MODEL              Model name (default: Azure/gpt-4.1)"
             echo "  --keycloak-user USER       Keycloak username (default: admin)"
             echo "  --keycloak-pass PASS       Keycloak password (auto-detected from cluster if not provided)"
+            echo "  --use-mcp-gateway          Connect agent to MCP Gateway instead of direct MCP server"
             echo "  -h, --help                 Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0 --benchmark gsm8k --agent generic_agent"
             echo "  $0 --benchmark tau2 --agent tool_calling --model Azure/gpt-4o-mini"
             echo "  $0 --benchmark tau2 --agent tool_calling --model Azure/gpt-4o-mini --keycloak-user admin --keycloak-pass admin"
+            echo "  $0 --benchmark tau2 --agent tool_calling --use-mcp-gateway"
             exit 0
             ;;
         -*)
@@ -398,7 +405,12 @@ echo ""
 echo "Step 7: Preparing environment variables for deployment..."
 
 # Add MCP_URL(S) to environment variables
-MCP_URL="http://${TOOL_NAME}-mcp:8000/mcp"
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    MCP_URL="http://mcp-gateway-istio.gateway-system.svc.cluster.local:8080/mcp"
+    echo "Using MCP Gateway URL: $MCP_URL"
+else
+    MCP_URL="http://${TOOL_NAME}-mcp:8000/mcp"
+fi
 
 if [ "$DEPLOYMENT_TYPE" = "source" ]; then
     # Generic agent uses MCP_URLS

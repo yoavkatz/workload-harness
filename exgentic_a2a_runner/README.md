@@ -144,6 +144,43 @@ source .venv/bin/activate
 For appworld benchmark, use gemini-2.5-pro or other models, because OpenAI models cannot handle the number of tools in appworld without special tool shortlisting.
 
 
+## MCP Gateway Support
+
+The runner can optionally route MCP traffic through an [MCP Gateway](https://github.com/kuadrant/mcp-gateway) instead of connecting directly to the benchmark MCP server. When enabled, the gateway acts as a single entry point that multiplexes access to registered MCP servers and namespaces their tools with a configurable prefix.
+
+### How It Works
+
+1. **Benchmark deployment** (`deploy-benchmark.sh --use-mcp-gateway`) creates an `HTTPRoute` and an `MCPServerRegistration` CR that registers the MCP server with the gateway.
+2. **Agent deployment** (`deploy-agent.sh --use-mcp-gateway`) points the agent's `MCP_URL` at the gateway service (`mcp-gateway-istio.gateway-system.svc.cluster.local:8080`) instead of the benchmark's MCP service directly.
+3. **Evaluation** (`evaluate-benchmark.sh`) port-forwards the gateway service and sets `EXGENTIC_MCP_TOOL_PREFIX` so the runner prepends the gateway-assigned prefix to every tool call (e.g. `list_tasks` becomes `exgentic_list_tasks`).
+
+### Deploying with the MCP Gateway
+
+Pass `--use-mcp-gateway` to any deployment or evaluation script:
+
+```bash
+# Individual scripts
+./deploy-benchmark.sh --benchmark tau2 --use-mcp-gateway
+./deploy-agent.sh --benchmark tau2 --agent tool_calling --use-mcp-gateway
+
+# All-in-one
+./deploy-and-evaluate.sh --benchmark tau2 --agent tool_calling --use-mcp-gateway
+```
+
+You can also set the flag in your `.env` file so it applies by default:
+
+```bash
+USE_MCP_GATEWAY=true
+```
+
+### Tool Prefix
+
+The MCP Gateway exposes tools under a namespace prefix (default `exgentic_`). The runner reads `EXGENTIC_MCP_TOOL_PREFIX` and prepends it to every MCP tool call. When using the gateway via `evaluate-benchmark.sh`, this variable is set automatically. For manual runs you can export it yourself:
+
+```bash
+export EXGENTIC_MCP_TOOL_PREFIX=exgentic_
+```
+
 ## Configuration
 
 ### Before Running Evaluations
@@ -183,6 +220,13 @@ Then edit the .env file as needed.
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | OTLP protocol. The current exporter implementation in [`OTELInstrumentation._initialize_tracing()`](exgentic_a2a_runner/exgentic_a2a_runner/otel.py:80) and [`OTELInstrumentation._initialize_metrics()`](exgentic_a2a_runner/exgentic_a2a_runner/otel.py:114) uses OTLP gRPC. |
 | `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Use insecure OTLP connection. |
 
+### MCP Gateway Configuration
+
+| Environment Variable | Default | Description |
+| --- | --- | --- |
+| `USE_MCP_GATEWAY` | `false` | Route MCP traffic through the MCP Gateway instead of connecting directly to the MCP server. |
+| `EXGENTIC_MCP_TOOL_PREFIX` | `(empty)` | Prefix prepended to MCP tool names. Set to match the gateway's `MCPServerRegistration.spec.toolPrefix` (e.g. `exgentic_`). |
+
 ### Advanced Configuration
 
 | Environment Variable | Default | Description |
@@ -218,6 +262,9 @@ When [`--phoenix-otel`](exgentic_a2a_runner/deploy-and-evaluate.sh) is supplied,
 
 # With Phoenix OTEL forwarding during evaluation
 ./deploy-and-evaluate.sh --benchmark gsm8k --agent tool_calling --phoenix-otel
+
+# Route MCP traffic through the MCP Gateway
+./deploy-and-evaluate.sh --benchmark tau2 --agent tool_calling --use-mcp-gateway
 
 # With custom model
 ./deploy-and-evaluate.sh --benchmark tau2 --agent tool_calling --model Azure/gpt-4o-mini
