@@ -254,6 +254,13 @@ def avg(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def std(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    m = avg(values)
+    return (sum((x - m) ** 2 for x in values) / (len(values) - 1)) ** 0.5
+
+
 def format_time(iso: str) -> str:
     try:
         dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
@@ -324,10 +331,13 @@ def print_report(records: list[TraceRecord]) -> None:
         row("Evaluation (s)", eval_times)
 
         print()
-        print(f"  Avg LLM calls/session:     {avg(llm_counts):.1f}")
-        print(f"  Avg Tool calls/session:    {avg(tool_counts):.1f}")
+        llm_counts_f = [float(x) for x in llm_counts]
+        tool_counts_f = [float(x) for x in tool_counts]
+        print(f"  Avg LLM calls/session:     {avg(llm_counts_f):.1f}  (std: {std(llm_counts_f):.1f})")
+        print(f"  Avg Tool calls/session:    {avg(tool_counts_f):.1f}  (std: {std(tool_counts_f):.1f})")
         if any(llm_after_obs_times):
-            print(f"  Avg LLM call latency:      {avg([t.llm_after_obs_s / max(t.llm_count - 1, 1) for t in traces if t.llm_count > 0]):.2f}s")
+            llm_latencies = [t.llm_after_obs_s / max(t.llm_count - 1, 1) for t in traces if t.llm_count > 0]
+            print(f"  Avg LLM call latency:      {avg(llm_latencies):.2f}s  (std: {std(llm_latencies):.2f}s)")
 
         # Time breakdown as % of agent call time
         # TTFO = time before first observation (includes first LLM call + startup)
@@ -339,22 +349,23 @@ def print_report(records: list[TraceRecord]) -> None:
         tool_pcts = [(t.tool_total_s / t.agent_call_s * 100) if t.agent_call_s > 0 else 0 for t in traces]
         overhead_pcts = [(t.overhead_s / t.agent_call_s * 100) if t.agent_call_s > 0 else 0 for t in traces]
         if any(ttfo_pcts):
-            print(f"  Avg % time before 1st Obs: {avg(ttfo_pcts):.1f}%")
+            print(f"  Avg % time before 1st Obs: {avg(ttfo_pcts):.1f}%  (std: {std(ttfo_pcts):.1f}%)")
         if any(llm_pcts):
-            print(f"  Avg % time on LLM calls:   {avg(llm_pcts):.1f}%")
+            print(f"  Avg % time on LLM calls:   {avg(llm_pcts):.1f}%  (std: {std(llm_pcts):.1f}%)")
         if any(tool_pcts):
-            print(f"  Avg % time on Tool calls:  {avg(tool_pcts):.1f}%")
+            print(f"  Avg % time on Tool calls:  {avg(tool_pcts):.1f}%  (std: {std(tool_pcts):.1f}%)")
         if any(overhead_pcts):
-            print(f"  Avg % time overhead:       {avg(overhead_pcts):.1f}%")
-        
-        input_tokens = [t.llm_input_tokens for t in traces]
-        output_tokens = [t.llm_output_tokens for t in traces]
+            print(f"  Avg % time overhead:       {avg(overhead_pcts):.1f}%  (std: {std(overhead_pcts):.1f}%)")
+
+        input_tokens = [float(t.llm_input_tokens) for t in traces]
+        output_tokens = [float(t.llm_output_tokens) for t in traces]
+        total_tokens = [i + o for i, o in zip(input_tokens, output_tokens)]
         if any(input_tokens):
-            print(f"  Avg LLM input tokens:      {avg(input_tokens):.0f}")
+            print(f"  Avg LLM input tokens:      {avg(input_tokens):.0f}  (std: {std(input_tokens):.0f})")
         if any(output_tokens):
-            print(f"  Avg LLM output tokens:     {avg(output_tokens):.0f}")
+            print(f"  Avg LLM output tokens:     {avg(output_tokens):.0f}  (std: {std(output_tokens):.0f})")
         if any(input_tokens) or any(output_tokens):
-            print(f"  Avg LLM total tokens:      {avg([i + o for i, o in zip(input_tokens, output_tokens)]):.0f}")
+            print(f"  Avg LLM total tokens:      {avg(total_tokens):.0f}  (std: {std(total_tokens):.0f})")
 
         # Infrastructure metrics (only from traces that have infra data)
         infra_traces = [t for t in traces if t.has_infra]
