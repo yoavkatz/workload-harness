@@ -1,7 +1,8 @@
 #!/bin/bash
 # Evaluate a specific Exgentic benchmark
-# Usage: ./evaluate-benchmark.sh --benchmark <name> --agent <name> [--phoenix-otel]
+# Usage: ./evaluate-benchmark.sh --benchmark <name> --agent <name> [--phoenix-otel] [--use-mcp-gateway]
 # Example: ./evaluate-benchmark.sh --benchmark tau2 --agent tool_calling
+# Example: ./evaluate-benchmark.sh --benchmark tau2 --agent tool_calling --use-mcp-gateway
 
 set -e
 
@@ -29,8 +30,12 @@ while [[ $# -gt 0 ]]; do
             PHOENIX_OTEL_ENABLED="true"
             shift
             ;;
+        --use-mcp-gateway)
+            USE_MCP_GATEWAY="true"
+            shift
+            ;;
         -h|--help)
-            echo "Usage: $0 --benchmark <name> --agent <name> [--phoenix-otel]"
+            echo "Usage: $0 --benchmark <name> --agent <name> [--phoenix-otel] [--use-mcp-gateway]"
             echo ""
             echo "Required Arguments:"
             echo "  --benchmark NAME           Benchmark name (e.g., gsm8k, tau2)"
@@ -38,12 +43,14 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --phoenix-otel             Port-forward Phoenix OTLP and export runner telemetry to it"
+            echo "  --use-mcp-gateway          Route MCP traffic through the MCP Gateway"
             echo "  -h, --help                 Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0 --benchmark tau2 --agent tool_calling"
             echo "  $0 --benchmark gsm8k --agent generic_agent"
             echo "  $0 --benchmark gsm8k --agent tool_calling --phoenix-otel"
+            echo "  $0 --benchmark tau2 --agent tool_calling --use-mcp-gateway"
             exit 0
             ;;
         -*)
@@ -61,7 +68,7 @@ done
 
 if [ -z "$BENCHMARK_NAME" ] || [ -z "$AGENT_NAME" ]; then
     echo "Error: Both --benchmark and --agent are required"
-    echo "Usage: $0 --benchmark <name> --agent <name> [--phoenix-otel]"
+    echo "Usage: $0 --benchmark <name> --agent <name> [--phoenix-otel] [--use-mcp-gateway]"
     echo "Use --help for more information"
     exit 1
 fi

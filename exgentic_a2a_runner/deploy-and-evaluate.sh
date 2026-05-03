@@ -174,6 +174,9 @@ EVALUATE_ARGS=(--benchmark "$BENCHMARK_NAME" --agent "$AGENT_NAME")
 if [ "$PHOENIX_OTEL_ENABLED" = "true" ]; then
     EVALUATE_ARGS+=(--phoenix-otel)
 fi
+if [ "$USE_MCP_GATEWAY" = "true" ]; then
+    EVALUATE_ARGS+=(--use-mcp-gateway)
+fi
 
 "$SCRIPT_DIR/evaluate-benchmark.sh" "${EVALUATE_ARGS[@]}"
 
