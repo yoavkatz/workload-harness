@@ -337,7 +337,24 @@ fi
 if [ "$USE_MCP_GATEWAY" = "true" ]; then
     echo "Deleting existing MCP Gateway resources if they exist..."
     kubectl delete httproute "${TOOL_NAME}-route" -n "$NAMESPACE" --ignore-not-found
-    kubectl delete mcpserverregistrations "${TOOL_NAME}-servers" -n "$NAMESPACE" --ignore-not-found
+    
+    # List all mcpserverregistrations before deletion
+    echo "Listing all MCPServerRegistrations in namespace $NAMESPACE..."
+    EXISTING_REGS=$(kubectl get mcpserverregistrations -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+    
+    if [ -n "$EXISTING_REGS" ]; then
+        echo "Found MCPServerRegistrations to delete:"
+        for reg in $EXISTING_REGS; do
+            echo "  - $reg"
+        done
+        
+        # Delete all mcpserverregistrations in the namespace
+        kubectl delete mcpserverregistrations --all -n "$NAMESPACE" --ignore-not-found
+        echo "✓ All MCPServerRegistrations deleted"
+    else
+        echo "✓ No MCPServerRegistrations found to delete"
+    fi
+    
     echo "✓ MCP Gateway resources cleaned up"
 fi
 
