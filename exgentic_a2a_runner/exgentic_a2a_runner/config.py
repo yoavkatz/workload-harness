@@ -35,6 +35,7 @@ class ExgenticConfig:
 
     mcp_server_url: str
     mcp_timeout_seconds: int = 60
+    mcp_tool_prefix: str = ""
     max_tasks: Optional[int] = None
     abort_on_failure: bool = False
     max_parallel_sessions: int = 1
@@ -51,6 +52,7 @@ class ExgenticConfig:
         return cls(
             mcp_server_url=mcp_server_url,
             mcp_timeout_seconds=_get_int("EXGENTIC_MCP_TIMEOUT_SECONDS", 60) or 60,
+            mcp_tool_prefix=os.getenv("EXGENTIC_MCP_TOOL_PREFIX", ""),
             max_tasks=_get_int("MAX_TASKS"),
             abort_on_failure=_get_bool("ABORT_ON_FAILURE", False),
             max_parallel_sessions=_get_int("MAX_PARALLEL_SESSIONS", 1) or 1,
@@ -110,6 +112,30 @@ class OTELConfig:
 
 
 @dataclass
+class PrometheusConfig:
+    """Prometheus metrics collection configuration."""
+
+    url: Optional[str] = None
+    namespace: str = "team1"
+    mcp_pod_prefix: Optional[str] = None
+    a2a_pod_prefix: Optional[str] = None
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.url and self.mcp_pod_prefix and self.a2a_pod_prefix)
+
+    @classmethod
+    def from_env(cls) -> "PrometheusConfig":
+        """Load Prometheus configuration from environment variables."""
+        return cls(
+            url=os.getenv("PROMETHEUS_URL"),
+            namespace=os.getenv("INFRA_NAMESPACE", "team1"),
+            mcp_pod_prefix=os.getenv("INFRA_MCP_POD_PREFIX"),
+            a2a_pod_prefix=os.getenv("INFRA_A2A_POD_PREFIX"),
+        )
+
+
+@dataclass
 class DebugConfig:
     """Debug and logging configuration."""
 
@@ -132,6 +158,7 @@ class Config:
     exgentic: ExgenticConfig
     a2a: A2AConfig
     otel: OTELConfig
+    prometheus: PrometheusConfig
     debug: DebugConfig
 
     @classmethod
@@ -141,6 +168,7 @@ class Config:
             exgentic=ExgenticConfig.from_env(),
             a2a=A2AConfig.from_env(),
             otel=OTELConfig.from_env(),
+            prometheus=PrometheusConfig.from_env(),
             debug=DebugConfig.from_env(),
         )
 

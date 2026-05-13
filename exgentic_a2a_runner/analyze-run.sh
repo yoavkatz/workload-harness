@@ -10,7 +10,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Default values
-PHOENIX_URL="http://localhost:6006/graphql"
+PHOENIX_URL="http://phoenix.localtest.me:8080/graphql"
 LIMIT=100
 AUTO_PORT_FORWARD="false"
 PHOENIX_NAMESPACE="kagenti-system"
