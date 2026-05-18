@@ -15,7 +15,7 @@ LIMIT=100
 AUTO_PORT_FORWARD="false"
 MLFLOW_NAMESPACE="kagenti-system"
 MLFLOW_SERVICE="mlflow"
-MLFLOW_LOCAL_PORT="8081"
+MLFLOW_LOCAL_PORT="8080"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 EXPERIMENT_ID="0"
 EXPERIMENT_FILTER=""
@@ -26,7 +26,7 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Options:
-    -u, --url URL              MLflow REST API base URL (default: http://localhost:8081)
+    -u, --url URL              MLflow REST API base URL (default: http://mlflow.localtest.me:8080)
     -l, --limit NUM            Limit number of traces to download (default: 100)
     -e, --experiment NAME      Filter traces by experiment name attribute
     -c, --compare EXP1,EXP2    Compare two experiments (comma-separated)
@@ -38,7 +38,7 @@ Examples:
     $0 -f -l 50
     $0 --experiment baseline
     $0 --compare baseline,test1
-    $0 -u http://localhost:8081 -l 200
+    $0 -u http://mlflow.localtest.me:8080 -l 200
 EOF
     exit 1
 }
@@ -58,7 +58,7 @@ done
 
 # Set default URL if not provided
 if [ -z "$MLFLOW_URL" ]; then
-    MLFLOW_URL="http://localhost:${MLFLOW_LOCAL_PORT}"
+    MLFLOW_URL="http://mlflow.localtest.me:8080"
 fi
 
 echo "=== MLflow Trace Analysis ==="

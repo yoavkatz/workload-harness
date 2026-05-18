@@ -302,14 +302,16 @@ echo -n "  MCP Server: "
 if curl -s -o /dev/null -w "%{http_code}" http://localhost:7770/health 2>/dev/null | grep -q "200\|404"; then
     echo "✓ Reachable"
 else
-    echo "⚠ May not be reachable - this might be OK if no /health endpoint"
+    echo "✗ MCP Server not reachable at localhost:7770"
+    exit 1
 fi
 
 echo -n "  A2A Agent:  "
 if curl -s -o /dev/null -w "%{http_code}" http://localhost:7701/.well-known/agent-card.json 2>/dev/null | grep -q "200\|404"; then
     echo "✓ Reachable"
 else
-    echo "⚠ May not be reachable - this might be OK"
+    echo "✗ A2A Agent not reachable at localhost:7701"
+    exit 1
 fi
 
 if [ "$MLFLOW_ENABLED" = "true" ]; then
@@ -317,7 +319,8 @@ if [ "$MLFLOW_ENABLED" = "true" ]; then
     if nc -z localhost ${OTEL_COLLECTOR_LOCAL_PORT} 2>/dev/null; then
         echo "✓ Reachable"
     else
-        echo "⚠ Port check failed"
+        echo "✗ OTEL Collector not reachable at localhost:${OTEL_COLLECTOR_LOCAL_PORT}"
+        exit 1
     fi
 fi
 
