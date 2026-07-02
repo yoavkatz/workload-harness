@@ -88,7 +88,6 @@ fi
 EXGENTIC_REGISTRY="${EXGENTIC_REGISTRY:-ghcr.io/exgentic}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 REMOTE_IMAGE_NAME="${EXGENTIC_REGISTRY}/exgentic-mcp-${BENCHMARK_NAME}:${IMAGE_TAG}"
-LOCAL_IMAGE_NAME="localhost/exgentic-mcp-${BENCHMARK_NAME}:latest"
 TOOL_NAME="exgentic-mcp-${BENCHMARK_NAME}"
 NAMESPACE="team1"
 KAGENTI_API="http://kagenti-api.localtest.me:8080"
@@ -100,111 +99,20 @@ echo "=========================================="
 echo "Model: $MODEL_NAME"
 echo ""
 
-# Step 1: Determine container runtime and get image
-echo "Step 1: Setting up container image..."
-if command -v podman &> /dev/null; then
-    CONTAINER_CMD="podman"
-elif command -v docker &> /dev/null; then
-    CONTAINER_CMD="docker"
-else
-    echo "Error: Neither podman nor docker found"
-    exit 1
-fi
-
-echo "Using container runtime: $CONTAINER_CMD"
-
+# Step 1: Sync local image to cluster
 if [ "$USE_LOCAL_IMAGE" = "true" ]; then
-    # Force use of local image
-    echo "Using local image (--local-image flag set): $LOCAL_IMAGE_NAME"
-    IMAGE_NAME="$LOCAL_IMAGE_NAME"
-    
-    if ! $CONTAINER_CMD image inspect "$IMAGE_NAME" &> /dev/null; then
-        echo "Error: Local image $IMAGE_NAME not found"
-        echo "Please build the image first"
-        exit 1
-    fi
-    
-    echo "✓ Local image found: $IMAGE_NAME"
+    echo "Step 1: Syncing local image to cluster..."
+    export REMOTE_IMAGE_NAME KIND_CLUSTER_NAME="kagenti"
+    source "$(dirname "$0")/sync-image-to-cluster.sh"
 else
-    # Try to use remote image from Exgentic registry first
-    IMAGE_NAME="$REMOTE_IMAGE_NAME"
-    echo "Attempting to pull image from Exgentic registry: $REMOTE_IMAGE_NAME"
-    
-    if $CONTAINER_CMD pull "$REMOTE_IMAGE_NAME" ; then
-        echo "✓ Successfully pulled image from Exgentic registry"
-        # Tag it as localhost for kind compatibility
-        $CONTAINER_CMD tag "$REMOTE_IMAGE_NAME" "$LOCAL_IMAGE_NAME"
-        IMAGE_NAME="$LOCAL_IMAGE_NAME"
-    else
-        echo "Warning: Could not pull from Exgentic registry, checking for local image..."
-        IMAGE_NAME="$LOCAL_IMAGE_NAME"
-        
-        if ! $CONTAINER_CMD image inspect "$IMAGE_NAME" &> /dev/null; then
-            echo "Error: Image $IMAGE_NAME not found locally and could not pull from registry"
-            echo "Please either:"
-            echo "  1. Build the image locally and use --local-image flag, or"
-            echo "  2. Ensure you have access to $REMOTE_IMAGE_NAME"
-            exit 1
-        fi
-        
-        echo "✓ Using local image: $IMAGE_NAME"
-    fi
+    echo "Step 1: Syncing local image to cluster... (skipped, K8s will pull from remote registry)"
 fi
 
+IMAGE_NAME="$REMOTE_IMAGE_NAME"
 echo ""
 
-# Step 2: Check if image needs syncing
-echo "Step 2: Checking if image sync is needed..."
-if ! command -v kind &> /dev/null; then
-    echo "Error: kind command not found"
-    exit 1
-fi
-
-# Get local image ID
-LOCAL_IMAGE_ID=$($CONTAINER_CMD inspect "$IMAGE_NAME" --format='{{.Id}}' 2>/dev/null || echo "")
-
-if [ -z "$LOCAL_IMAGE_ID" ]; then
-    echo "Error: Could not get local image ID"
-    exit 1
-fi
-
-echo "Local image ID: $LOCAL_IMAGE_ID"
-
-# Get cluster image ID (check if image exists in cluster)
-# Use podman if available, otherwise docker
-if command -v podman &> /dev/null; then
-    CLUSTER_IMAGE_ID=$(podman exec kagenti-control-plane crictl inspecti "$IMAGE_NAME" 2>/dev/null | grep '"id":' | head -1 | sed 's/.*"id": *"\([^"]*\)".*/\1/' || echo "")
-else
-    CLUSTER_IMAGE_ID=$(docker exec kagenti-control-plane crictl inspecti "$IMAGE_NAME" 2>/dev/null | grep '"id":' | head -1 | sed 's/.*"id": *"\([^"]*\)".*/\1/' || echo "")
-fi
-
-# Normalize IDs by removing sha256: prefix if present
-LOCAL_IMAGE_ID_NORMALIZED="${LOCAL_IMAGE_ID#sha256:}"
-CLUSTER_IMAGE_ID_NORMALIZED="${CLUSTER_IMAGE_ID#sha256:}"
-
-if [ -z "$CLUSTER_IMAGE_ID" ]; then
-    echo "Image not found in cluster, syncing..."
-    NEED_SYNC=true
-elif [ "$LOCAL_IMAGE_ID_NORMALIZED" != "$CLUSTER_IMAGE_ID_NORMALIZED" ]; then
-    echo "Cluster image ID: $CLUSTER_IMAGE_ID"
-    echo "Images differ, syncing..."
-    NEED_SYNC=true
-else
-    echo "Cluster image ID: $CLUSTER_IMAGE_ID"
-    echo "✓ Images match, skipping sync"
-    NEED_SYNC=false
-fi
-
-if [ "$NEED_SYNC" = true ]; then
-    echo "Saving and loading image..."
-    $CONTAINER_CMD save "$IMAGE_NAME" | kind load image-archive /dev/stdin --name kagenti
-    echo "✓ Image synced to kind-kagenti cluster"
-fi
-
-echo ""
-
-# Step 3: Verify Keycloak is accessible
-echo "Step 3: Verifying Keycloak is accessible at $KEYCLOAK_API..."
+# Step 2: Verify Keycloak is accessible
+echo "Step 2: Verifying Keycloak is accessible at $KEYCLOAK_API..."
 KEYCLOAK_REACHABLE=false
 for i in $(seq 1 10); do
     if curl -s --max-time 5 "$KEYCLOAK_API/health" >/dev/null 2>&1; then
@@ -223,9 +131,9 @@ fi
 
 echo ""
 
-# Step 3.5: Auto-fetch Keycloak password from cluster if using default (without testing yet)
+# Step 2.5: Auto-fetch Keycloak password from cluster if using default (without testing yet)
 if [ "$KEYCLOAK_PASSWORD" = "unknown" ]; then
-    echo "Step 3.5: Fetching Keycloak password from cluster..."
+    echo "Step 2.5: Fetching Keycloak password from cluster..."
     
     # Try to get kagenti realm admin credentials from kagenti-test-user secret
     KAGENTI_PASSWORD=$(kubectl get secret kagenti-test-user -n keycloak -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
@@ -240,8 +148,8 @@ if [ "$KEYCLOAK_PASSWORD" = "unknown" ]; then
     echo ""
 fi
 
-# Step 4: Enable Direct Access Grants for kagenti client if needed
-echo "Step 4: Enabling Direct Access Grants for kagenti client..."
+# Step 3: Enable Direct Access Grants for kagenti client if needed
+echo "Step 3: Enabling Direct Access Grants for kagenti client..."
 
 # Get admin token first (use "admin" password for master realm)
 ADMIN_TOKEN_RESPONSE=$(curl -s -X POST "$KEYCLOAK_API/realms/master/protocol/openid-connect/token" \
@@ -274,8 +182,8 @@ fi
 
 echo ""
 
-# Step 4.5: Verify Keycloak password works now that Direct Access Grants is enabled
-echo "Step 4.5: Verifying Keycloak authentication..."
+# Step 3.5: Verify Keycloak password works now that Direct Access Grants is enabled
+echo "Step 3.5: Verifying Keycloak authentication..."
 TEST_AUTH=$(curl -s -X POST "$KEYCLOAK_API/realms/kagenti/protocol/openid-connect/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -d "username=$KEYCLOAK_USERNAME" \
@@ -293,8 +201,8 @@ echo "✓ Keycloak authentication verified"
 
 echo ""
 
-# Step 5: Get Keycloak authentication token...
-echo "Step 5: Getting Keycloak authentication token..."
+# Step 4: Get Keycloak authentication token
+echo "Step 4: Getting Keycloak authentication token..."
 
 # Get token from Keycloak using kagenti client (with direct access grants enabled)
 TOKEN_RESPONSE=$(curl -s -X POST "$KEYCLOAK_API/realms/kagenti/protocol/openid-connect/token" \
@@ -325,8 +233,8 @@ echo "✓ Successfully obtained authentication token"
 
 echo ""
 
-# Step 6: Verify Kagenti backend is accessible
-echo "Step 6: Verifying Kagenti backend accessibility at $KAGENTI_API..."
+# Step 5: Verify Kagenti backend is accessible
+echo "Step 5: Verifying Kagenti backend accessibility at $KAGENTI_API..."
 KAGENTI_REACHABLE=false
 for i in $(seq 1 10); do
     if curl -s --max-time 5 "$KAGENTI_API/api/v1/namespaces" >/dev/null 2>&1; then
@@ -345,8 +253,8 @@ fi
 
 echo ""
 
-# Step 7: Delete existing tool via Kagenti API if it exists
-echo "Step 7: Deleting existing tool via Kagenti API if it exists..."
+# Step 6: Delete existing tool via Kagenti API if it exists
+echo "Step 6: Deleting existing tool via Kagenti API if it exists..."
 DELETE_RESPONSE=$(curl -s --max-time 10 -w "%{http_code}" -o /tmp/kagenti_delete_response.txt -X DELETE "$KAGENTI_API/api/v1/tools/$NAMESPACE/$TOOL_NAME" \
     -H "Authorization: Bearer $ACCESS_TOKEN") || true
 
@@ -397,12 +305,12 @@ sleep 3
 
 echo ""
 
-# Step 7.1: Update secrets before deployment
-echo "Step 7.1: Updating secrets before deployment..."
+# Step 6.1: Update secrets before deployment
+echo "Step 6.1: Updating secrets before deployment..."
 echo ""
 
-# Step 7.1.1: Update the openai-secret with current OPENAI_API_KEY
-echo "Step 7.1.1: Updating openai-secret with OPENAI_API_KEY..."
+# Step 6.1.1: Update the openai-secret with current OPENAI_API_KEY
+echo "Step 6.1.1: Updating openai-secret with OPENAI_API_KEY..."
 
 if [ -z "$OPENAI_API_KEY" ]; then
     echo "Warning: OPENAI_API_KEY environment variable is not set"
@@ -423,8 +331,8 @@ fi
 
 echo ""
 
-# Step 7.1.2: Update the hf-secret with current HF_TOKEN
-echo "Step 7.1.2: Updating hf-secret with HF_TOKEN..."
+# Step 6.1.2: Update the hf-secret with current HF_TOKEN
+echo "Step 6.1.2: Updating hf-secret with HF_TOKEN..."
 
 # Use HF_TOKEN from environment or set a dummy token if not defined
 if [ -z "$HF_TOKEN" ]; then
@@ -455,8 +363,8 @@ fi
 
 echo ""
 
-# Step 8: Fetch and parse benchmark environment variables
-echo "Step 8: Fetching and preparing benchmark environment variables..."
+# Step 7: Fetch and parse benchmark environment variables
+echo "Step 7: Fetching and preparing benchmark environment variables..."
 ENV_CONTENT=$(curl -s "https://raw.githubusercontent.com/yoavkatz/agent-examples/refs/heads/feature/exgentic-mcp-server/mcp/exgentic_benchmarks/.env.${BENCHMARK_NAME}")
 
 # Benchmark env vars are required: a missing .env file or an unparseable
@@ -509,8 +417,8 @@ fi
 echo "✓ Environment variables prepared for deployment"
 echo ""
 
-# Step 9: Deploy tool using Kagenti API
-echo "Step 9: Deploying tool via Kagenti API..."
+# Step 8: Deploy tool using Kagenti API
+echo "Step 8: Deploying tool via Kagenti API..."
 
 # Create tool deployment JSON following Kagenti API format
 TOOL_JSON=$(cat <<EOF
@@ -520,7 +428,7 @@ TOOL_JSON=$(cat <<EOF
   "protocol": "mcp",
   "framework": "custom",
   "deploymentMethod": "image",
-  "containerImage": "$IMAGE_NAME",
+  "containerImage": "$REMOTE_IMAGE_NAME",
   "workloadType": "deployment",
   "envVars": $ENV_VARS,
   "servicePorts": [
@@ -575,16 +483,20 @@ else
 fi
 echo ""
 
-# Step 10: Patch imagePullPolicy to IfNotPresent for local images
-echo "Step 10: Patching imagePullPolicy to IfNotPresent..."
-sleep 2  # Give the deployment a moment to be created
-kubectl patch deployment $TOOL_NAME -n $NAMESPACE -p '{"spec":{"template":{"spec":{"containers":[{"name":"mcp","imagePullPolicy":"IfNotPresent"}]}}}}' 2>/dev/null || echo "Warning: Could not patch imagePullPolicy"
-echo "✓ ImagePullPolicy patched"
+# Step 9: Patch imagePullPolicy to IfNotPresent (local images only)
+if [ "$USE_LOCAL_IMAGE" = "true" ]; then
+    echo "Step 9: Patching imagePullPolicy to IfNotPresent..."
+    sleep 2  # Give the deployment a moment to be created
+    kubectl patch deployment $TOOL_NAME -n $NAMESPACE -p '{"spec":{"template":{"spec":{"containers":[{"name":"mcp","imagePullPolicy":"IfNotPresent"}]}}}}' 2>/dev/null || echo "Warning: Could not patch imagePullPolicy"
+    echo "✓ ImagePullPolicy patched"
+else
+    echo "Step 9: Patching imagePullPolicy... (skipped, K8s will pull from remote registry)"
+fi
 
 echo ""
 
-# Step 11: Wait for tool to be ready
-echo "Step 11: Waiting for tool to be ready..."
+# Step 10: Wait for tool to be ready
+echo "Step 10: Waiting for tool to be ready..."
 
 MAX_WAIT=120
 WAIT_INTERVAL=5
@@ -627,10 +539,10 @@ fi
 
 echo ""
 
-# Step 12: Update openai-secret and set memory limit
+# Step 11: Update openai-secret and set memory limit
 
-# Step 12.1: Set resource limits
-echo "Step 12.1: Setting resource limits..."
+# Step 11.1: Set resource limits
+echo "Step 11.1: Setting resource limits..."
 
 # Set CPU limit to 4 cores and memory limit to 4GB
 kubectl set resources deployment/$TOOL_NAME -n $NAMESPACE \
@@ -639,16 +551,16 @@ kubectl set resources deployment/$TOOL_NAME -n $NAMESPACE \
 
 echo ""
 
-# Step 12.2: Wait for any configuration changes to roll out
-echo "Step 12.2: Waiting for deployment to stabilize..."
+# Step 11.2: Wait for any configuration changes to roll out
+echo "Step 11.2: Waiting for deployment to stabilize..."
 kubectl rollout status deployment/$TOOL_NAME -n $NAMESPACE --timeout=120s
 echo "✓ Deployment stable"
 echo ""
 
 echo ""
 
-# Step 13: Health check MCP server
-echo "Step 13: Performing MCP server health check..."
+# Step 12: Health check MCP server
+echo "Step 12: Performing MCP server health check..."
 echo ""
 
 # Use HTTP route endpoint instead of port-forward
@@ -695,11 +607,11 @@ if [ "$HEALTH_CHECK_PASSED" = false ]; then
     echo "  The server may still be starting up or HTTP route may not be fully configured"
 fi
 
-# Step 14: Register with MCP Gateway (conditional)
+# Step 13: Register with MCP Gateway (conditional)
 if [ "$USE_MCP_GATEWAY" = "true" ]; then
     echo ""
     echo "=========================================="
-    echo "Step 14: Registering MCP server with Gateway"
+    echo "Step 13: Registering MCP server with Gateway"
     echo "=========================================="
     echo ""
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy and Configure agent to Kagenti cluster via API
 # Usage: ./deploy-agent.sh --benchmark <name> --agent <name> [OPTIONS]
-# Example: ./deploy-agent.sh --benchmark gsm8k --agent generic_agent
+# Example: ./deploy-agent.sh --benchmark tau2 --agent tool_calling
 # Example: ./deploy-agent.sh --benchmark tau2 --agent tool_calling --model Azure/gpt-4o-mini
 
 set -e
@@ -102,7 +102,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Required Arguments:"
             echo "  --benchmark NAME           Benchmark name (e.g., gsm8k, tau2)"
-            echo "  --agent NAME               Agent name (e.g., tool_calling, generic_agent)"
+            echo "  --agent NAME               Agent name (e.g., tool_calling)"
             echo ""
             echo "Optional Arguments:"
             echo "  --model MODEL              Model name (default: Azure/gpt-4.1)"
@@ -130,7 +130,6 @@ while [[ $# -gt 0 ]]; do
             echo "  TOKEN_BROKER_AUDIENCE        Broker audience (token-broker plugin)"
             echo ""
             echo "Examples:"
-            echo "  $0 --benchmark gsm8k --agent generic_agent"
             echo "  $0 --benchmark tau2 --agent tool_calling --model Azure/gpt-4o-mini"
             echo "  $0 --benchmark tau2 --agent tool_calling --use-mcp-gateway"
             echo "  $0 --benchmark tau2 --agent tool_calling --plugin-preset auth-only"
@@ -158,32 +157,20 @@ if [ -z "$BENCHMARK_NAME" ] || [ -z "$AGENT_NAME_INPUT" ]; then
     exit 1
 fi
 
-# Determine deployment type based on agent name
-if [ "$AGENT_NAME_INPUT" = "generic_agent" ]; then
-    DEPLOYMENT_TYPE="source"
-    AGENT_NAME="generic-agent-internal-${BENCHMARK_NAME}"
+# Automatically add exgentic-a2a- prefix if not already present
+if [[ "$AGENT_NAME_INPUT" == exgentic-a2a-* ]]; then
+    FULL_AGENT_NAME="$AGENT_NAME_INPUT"
 else
-    DEPLOYMENT_TYPE="image"
-    # Automatically add exgentic-a2a- prefix if not already present
-    if [[ "$AGENT_NAME_INPUT" == exgentic-a2a-* ]]; then
-        FULL_AGENT_NAME="$AGENT_NAME_INPUT"
-    else
-        FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME_INPUT}"
-    fi
-    # Replace underscores with hyphens for Kubernetes compatibility
-    AGENT_NAME="${FULL_AGENT_NAME}-${BENCHMARK_NAME}"
-    AGENT_NAME="${AGENT_NAME//_/-}"
-    
-    # Default to Exgentic registry, can be overridden with environment variable
-    EXGENTIC_REGISTRY="${EXGENTIC_REGISTRY:-ghcr.io/exgentic}"
-    IMAGE_TAG="${IMAGE_TAG:-latest}"
-    REMOTE_IMAGE_NAME="${EXGENTIC_REGISTRY}/${FULL_AGENT_NAME}:${IMAGE_TAG}"
-    LOCAL_IMAGE_NAME="localhost/${FULL_AGENT_NAME}:latest"
-    
-    # Will be set after image pull/check
-    IMAGE_NAME="$LOCAL_IMAGE_NAME"
-    IMAGE_NAME_WITHOUT_TAG="localhost/${FULL_AGENT_NAME}"
+    FULL_AGENT_NAME="exgentic-a2a-${AGENT_NAME_INPUT}"
 fi
+# Replace underscores with hyphens for Kubernetes compatibility
+AGENT_NAME="${FULL_AGENT_NAME}-${BENCHMARK_NAME}"
+AGENT_NAME="${AGENT_NAME//_/-}"
+
+# Default to Exgentic registry, can be overridden with environment variable
+EXGENTIC_REGISTRY="${EXGENTIC_REGISTRY:-ghcr.io/exgentic}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+REMOTE_IMAGE_NAME="${EXGENTIC_REGISTRY}/${FULL_AGENT_NAME}:${IMAGE_TAG}"
 
 TOOL_NAME="exgentic-mcp-${BENCHMARK_NAME}"
 NAMESPACE="team1"
@@ -191,117 +178,23 @@ KAGENTI_API="http://kagenti-api.localtest.me:8080"
 KEYCLOAK_API="http://keycloak.localtest.me:8080"
 
 echo "=========================================="
-if [ "$DEPLOYMENT_TYPE" = "source" ]; then
-    echo "Deploying Generic Agent: $AGENT_NAME"
-else
-    echo "Deploying Exgentic Agent: $AGENT_NAME"
-    echo "From image: $IMAGE_NAME"
-fi
+echo "Deploying Exgentic Agent: $AGENT_NAME"
+echo "From image: $REMOTE_IMAGE_NAME"
 echo "Model: $MODEL_NAME"
 echo "=========================================="
 echo ""
 
-# Step 0: If deploying from image, get and sync image
-if [ "$DEPLOYMENT_TYPE" = "image" ]; then
-    echo "Step 0: Setting up container image..."
-    
-    # Determine container runtime
-    if command -v podman &> /dev/null; then
-        CONTAINER_CMD="podman"
-    elif command -v docker &> /dev/null; then
-        CONTAINER_CMD="docker"
-    else
-        echo "Error: Neither podman nor docker found"
-        exit 1
-    fi
-    
-    echo "Using container runtime: $CONTAINER_CMD"
-    
-    if [ "$USE_LOCAL_IMAGE" = "true" ]; then
-        # Force use of local image
-        echo "Using local image (--local-image flag set): $LOCAL_IMAGE_NAME"
-        IMAGE_NAME="$LOCAL_IMAGE_NAME"
-        
-        if ! $CONTAINER_CMD image inspect "$IMAGE_NAME" &> /dev/null; then
-            echo "Error: Local image $IMAGE_NAME not found"
-            echo "Please build the image first"
-            exit 1
-        fi
-        
-        echo "✓ Local image found: $IMAGE_NAME"
-    else
-        # Try to use remote image from Exgentic registry first
-        echo "Attempting to pull image from Exgentic registry: $REMOTE_IMAGE_NAME"
-        
-        if $CONTAINER_CMD pull "$REMOTE_IMAGE_NAME" ; then
-            echo "✓ Successfully pulled image from Exgentic registry"
-            # Tag it as localhost for kind compatibility
-            $CONTAINER_CMD tag "$REMOTE_IMAGE_NAME" "$LOCAL_IMAGE_NAME"
-            IMAGE_NAME="$LOCAL_IMAGE_NAME"
-        else
-            echo "Warning: Could not pull from Exgentic registry, checking for local image..."
-            IMAGE_NAME="$LOCAL_IMAGE_NAME"
-            
-            if ! $CONTAINER_CMD image inspect "$IMAGE_NAME" &> /dev/null; then
-                echo "Error: Image $IMAGE_NAME not found locally and could not pull from registry"
-                echo "Please either:"
-                echo "  1. Build the image locally and use --local-image flag, or"
-                echo "  2. Ensure you have access to $REMOTE_IMAGE_NAME"
-                exit 1
-            fi
-            
-            echo "✓ Using local image: $IMAGE_NAME"
-        fi
-    fi
-    
-    # Check if kind is available
-    if ! command -v kind &> /dev/null; then
-        echo "Error: kind command not found"
-        exit 1
-    fi
-    
-    # Get local image ID
-    LOCAL_IMAGE_ID=$($CONTAINER_CMD inspect "$IMAGE_NAME" --format='{{.Id}}' 2>/dev/null || echo "")
-    
-    if [ -z "$LOCAL_IMAGE_ID" ]; then
-        echo "Error: Could not get local image ID"
-        exit 1
-    fi
-    
-    echo "Local image ID: $LOCAL_IMAGE_ID"
-    
-    # Get cluster image ID (check if image exists in cluster)
-    if command -v podman &> /dev/null; then
-        CLUSTER_IMAGE_ID=$(podman exec kagenti-control-plane crictl inspecti "$IMAGE_NAME" 2>/dev/null | grep '"id":' | head -1 | sed 's/.*"id": *"\([^"]*\)".*/\1/' || echo "")
-    else
-        CLUSTER_IMAGE_ID=$(docker exec kagenti-control-plane crictl inspecti "$IMAGE_NAME" 2>/dev/null | grep '"id":' | head -1 | sed 's/.*"id": *"\([^"]*\)".*/\1/' || echo "")
-    fi
-    
-    # Normalize IDs by removing sha256: prefix if present
-    LOCAL_IMAGE_ID_NORMALIZED="${LOCAL_IMAGE_ID#sha256:}"
-    CLUSTER_IMAGE_ID_NORMALIZED="${CLUSTER_IMAGE_ID#sha256:}"
-    
-    if [ -z "$CLUSTER_IMAGE_ID" ]; then
-        echo "Image not found in cluster, syncing..."
-        NEED_SYNC=true
-    elif [ "$LOCAL_IMAGE_ID_NORMALIZED" != "$CLUSTER_IMAGE_ID_NORMALIZED" ]; then
-        echo "Cluster image ID: $CLUSTER_IMAGE_ID"
-        echo "Images differ, syncing..."
-        NEED_SYNC=true
-    else
-        echo "Cluster image ID: $CLUSTER_IMAGE_ID"
-        echo "✓ Images match, skipping sync"
-        NEED_SYNC=false
-    fi
-    
-    if [ "$NEED_SYNC" = true ]; then
-        echo "Saving and loading image..."
-        $CONTAINER_CMD save "$IMAGE_NAME" | kind load image-archive /dev/stdin --name kagenti
-        echo "✓ Image synced to kind-kagenti cluster"
-    fi
-    
-    echo ""
+# Step 0: Sync local image to cluster
+if [ "$USE_LOCAL_IMAGE" = "true" ]; then
+    echo "Step 0: Syncing local image to cluster..."
+    export REMOTE_IMAGE_NAME KIND_CLUSTER_NAME="kagenti"
+    source "$(dirname "$0")/sync-image-to-cluster.sh"
+else
+    echo "Step 0: Syncing local image to cluster... (skipped, K8s will pull from remote registry)"
 fi
+
+IMAGE_NAME="$REMOTE_IMAGE_NAME"
+echo ""
 
 # Step 1: Verify Keycloak is accessible
 echo "Step 1: Verifying Keycloak is accessible at $KEYCLOAK_API..."
@@ -492,13 +385,8 @@ echo ""
 # Step 6: Fetch and parse environment variables
 echo "Step 6: Fetching environment variables..."
 
-if [ "$DEPLOYMENT_TYPE" = "source" ]; then
-    # Generic agent - fetch from agent-examples repo
-    ENV_FILE_URL="https://raw.githubusercontent.com/kagenti/agent-examples/refs/heads/main/a2a/generic_agent/.env.openai"
-else
-    # Exgentic agent - fetch env file for specific agent
-    ENV_FILE_URL="https://raw.githubusercontent.com/yoavkatz/agent-examples/refs/heads/feature/exgentic-mcp-server/a2a/exgentic_agent/.env.example"
-fi
+# Exgentic agent - fetch env file for specific agent
+ENV_FILE_URL="https://raw.githubusercontent.com/yoavkatz/agent-examples/refs/heads/feature/exgentic-mcp-server/a2a/exgentic_agent/.env.example"
 
 ENV_CONTENT=$(curl -s "$ENV_FILE_URL")
 
@@ -539,13 +427,7 @@ else
     echo "Using MCP internal service URL: $MCP_URL"
 fi
 
-if [ "$DEPLOYMENT_TYPE" = "source" ]; then
-    # Generic agent uses MCP_URLS
-    ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"MCP_URLS\", \"value\": \"$MCP_URL\"}]")
-else
-    # Exgentic agent uses MCP_URL
-    ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"MCP_URL\", \"value\": \"$MCP_URL\"}]")
-fi
+ENV_VARS_WITH_CONFIG=$(echo "$ENV_VARS" | jq ". + [{\"name\": \"MCP_URL\", \"value\": \"$MCP_URL\"}]")
 
 # Add runtime configuration environment variables
 if [ -n "$OPENAI_API_BASE" ]; then
@@ -679,38 +561,7 @@ PYEOF
     ) || exit 1
 fi
 
-if [ "$DEPLOYMENT_TYPE" = "source" ]; then
-    # Deploy generic agent from source
-    AGENT_JSON=$(cat <<EOF
-{
-  "name": "$AGENT_NAME",
-  "namespace": "$NAMESPACE",
-  "gitUrl": "https://github.com/kagenti/agent-examples",
-  "gitPath": "a2a/generic_agent",
-  "gitBranch": "main",
-  "imageTag": "latest",
-  "protocol": "a2a",
-  "framework": "custom",
-  "deploymentMethod": "source",
-  "workloadType": "deployment",
-  "envVars": $ENV_VARS_WITH_CONFIG,
-  "servicePorts": [
-    {
-      "name": "http",
-      "port": 8080,
-      "targetPort": 8000,
-      "protocol": "TCP"
-    }
-  ],
-  "createHttpRoute": true,
-  "authBridgeEnabled": $AUTHBRIDGE_ENABLED,
-  "spireEnabled": false
-}
-EOF
-)
-else
-    # Deploy exgentic agent from image
-    AGENT_JSON=$(cat <<EOF
+AGENT_JSON=$(cat <<EOF
 {
   "name": "$AGENT_NAME",
   "namespace": "$NAMESPACE",
@@ -721,7 +572,7 @@ else
   "protocol": "a2a",
   "framework": "custom",
   "deploymentMethod": "image",
-  "containerImage": "$IMAGE_NAME",
+  "containerImage": "$REMOTE_IMAGE_NAME",
   "workloadType": "deployment",
   "envVars": $ENV_VARS_WITH_CONFIG,
   "servicePorts": [
@@ -738,7 +589,6 @@ else
 }
 EOF
 )
-fi
 
 echo "Agent configuration:"
 echo "$AGENT_JSON" | jq '.'
@@ -770,50 +620,16 @@ fi
 
 echo ""
 
-# Step 9: Wait for build to complete (only for source deployments)
-if [ "$DEPLOYMENT_TYPE" = "source" ]; then
-    echo "Step 9: Waiting for build to complete..."
-    BUILD_RUN_NAME=$(echo "$RESPONSE" | jq -r '.message' | grep -o "BuildRun: '[^']*'" | sed "s/BuildRun: '\([^']*\)'/\1/")
-    
-    if [ -z "$BUILD_RUN_NAME" ]; then
-        echo "Warning: Could not extract BuildRun name from response"
-        echo "Response: $RESPONSE"
-        echo "Skipping build wait"
-    else
-        echo "Monitoring BuildRun: $BUILD_RUN_NAME"
-        
-        # Wait up to 5 minutes for build to complete
-        for i in {1..60}; do
-            BUILD_STATUS=$(kubectl get buildrun "$BUILD_RUN_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Succeeded")].status}' 2>/dev/null || echo "Unknown")
-            BUILD_REASON=$(kubectl get buildrun "$BUILD_RUN_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Succeeded")].reason}' 2>/dev/null || echo "Unknown")
-            
-            if [ "$BUILD_STATUS" = "True" ]; then
-                echo "✓ Build completed successfully"
-                break
-            elif [ "$BUILD_STATUS" = "False" ]; then
-                echo "✗ Build failed with reason: $BUILD_REASON"
-                echo "Check logs with: kubectl logs -n $NAMESPACE -l buildrun.shipwright.io/name=$BUILD_RUN_NAME"
-                exit 1
-            fi
-            
-            echo "  Build in progress... ($i/60)"
-            sleep 5
-        done
-        
-        if [ "$BUILD_STATUS" != "True" ]; then
-            echo "✗ Build did not complete within 5 minutes"
-            exit 1
-        fi
-    fi
-    echo ""
-else
-    # For image deployments, patch imagePullPolicy
+# Step 9: Patch imagePullPolicy to IfNotPresent (local images only)
+if [ "$USE_LOCAL_IMAGE" = "true" ]; then
     echo "Step 9: Patching imagePullPolicy to IfNotPresent..."
     sleep 2  # Give the deployment a moment to be created
     kubectl patch deployment $AGENT_NAME -n $NAMESPACE -p '{"spec":{"template":{"spec":{"containers":[{"name":"agent","imagePullPolicy":"IfNotPresent"}]}}}}' 2>/dev/null || echo "Warning: Could not patch imagePullPolicy"
     echo "✓ ImagePullPolicy patched"
-    echo ""
+else
+    echo "Step 9: Patching imagePullPolicy... (skipped, K8s will pull from remote registry)"
 fi
+echo ""
 
 # Step 10: Wait for agent deployment to be created and ready
 echo "Step 10: Waiting for agent deployment to be created..."
